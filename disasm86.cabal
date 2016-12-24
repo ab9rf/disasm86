@@ -15,11 +15,21 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Diassembler
+  exposed-modules:     Disassembler
   build-depends:       base >= 4.7 && < 5
                      , bytestring
                      , binary
   default-language:    Haskell2010
+
+test-suite test
+    hs-source-dirs:     src/test
+    main-is:            main.hs
+    type:               exitcode-stdio-1.0
+    build-depends:      disasm86
+                      , base
+                      , QuickCheck
+                      , hspec
+                      , bytestring
 
 source-repository head
   type:     git
