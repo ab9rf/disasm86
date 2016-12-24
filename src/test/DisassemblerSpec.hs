@@ -1,4 +1,4 @@
-module DisassemberSpec (spec)
+module DisassemblerSpec (spec)
 where
 
 import Test.Hspec
@@ -18,3 +18,7 @@ spec = do
             ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) Nothing
                                        , D.Op_Reg (D.Reg8 D.RAX D.HalfL)]]
             , B.empty)
+    describe "text representations" $ do
+        it "0000" $ D.textrep (D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) Nothing
+                                                        , D.Op_Reg (D.Reg8 D.RAX D.HalfL)])
+                      `shouldBe` "add [rax], al"

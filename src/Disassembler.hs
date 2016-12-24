@@ -1,6 +1,7 @@
 module Disassembler
     (
           disassemble
+        , textrep
         , Instruction(..)
         , Operation(..)
         , Operand(..)
@@ -15,13 +16,14 @@ import Data.Word (Word8, Word64)
 import Data.Int (Int64)
 import Data.Binary.Get
 import Data.Bits
+import Data.List (intercalate)
 
 import qualified Data.ByteString.Lazy as B
 
 data Instruction = Instruction {
-      inPrefix   :: [Prefix]
-    , inOpcode   :: Operation
-    , inOperands :: [Operand]
+      inPrefix    :: [Prefix]
+    , inOperaiton :: Operation
+    , inOperands  :: [Operand]
     } deriving (Show, Eq)
 
 data Prefix = Prefix
@@ -65,6 +67,28 @@ data Immediate t = Immediate {
 
 type ImmediateU = Immediate Word64
 type ImmediateS = Immediate Int64
+
+textrep :: Instruction -> String
+textrep (Instruction p oper operands) =
+    let t1 = opertext oper
+        t2 = intercalate ", " (map operandtext operands)
+      in case t2 of "" -> t1
+                    _  -> t1 ++ " " ++ t2
+
+opertext :: Operation -> String
+opertext I_ADD = "add"
+
+operandtext :: Operand -> String
+operandtext (Op_Reg r) = registertext r
+operandtext (Op_Mem _ base Nothing)    = "[" ++ registertext base ++ "]"
+operandtext (Op_Mem _ base (Just sib)) = "[" ++ registertext base ++ "+" ++ (sibtext sib) ++ "]"
+
+registertext :: Register -> String
+registertext (Reg64 RAX) = "rax"
+registertext (Reg8 RAX HalfL) = "al"
+
+sibtext :: (Register, Word8, ImmediateU) -> String
+sibtext _ = "<<sib>>" -- TODO
 
 disassemble :: ByteString -> ([Instruction], ByteString)
 disassemble s = case runGetOrFail disassemble1 s of
