@@ -15,10 +15,10 @@ spec = do
     describe "basic opcodes" $ do
 -- 0x0000: add [rax], al
         it "00" $ D.disassemble (B.pack [0x00, 0x00]) `shouldBe`
-            ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) Nothing
+            ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0)
                                        , D.Op_Reg (D.Reg8 D.RAX D.HalfL)]]
             , B.empty)
     describe "text representations" $ do
-        it "0000" $ D.textrep (D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) Nothing
+        it "0000" $ D.textrep (D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0)
                                                         , D.Op_Reg (D.Reg8 D.RAX D.HalfL)])
                       `shouldBe` "add [rax], al"
