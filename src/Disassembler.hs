@@ -33,6 +33,8 @@ data Instruction = Instruction {
 data Prefix =
       PrefixO16
     | PrefixA32
+    | PrefixRepNE
+    | PrefixRep
     deriving (Show, Eq)
 
 data Operation =
@@ -102,6 +104,9 @@ textrep (Instruction p oper operands) =
 
 prefixtext PrefixA32 = "a32 "
 prefixtext PrefixO16 = "o16 "
+prefixtext PrefixRepNE = "repne "
+prefixtext PrefixRep = "rep "
+
 
 operandtext :: Operand -> String
 operandtext (Op_Reg r) = registertext r
@@ -139,9 +144,10 @@ data PrefixState = PrefixState {
           pfxRex ::  Maybe Word8
         , pfxO16 :: Bool
         , pfxA32 :: Bool
+        , pfxRep :: Maybe Prefix
     }
 
-pfxNone = PrefixState Nothing False False
+pfxNone = PrefixState Nothing False False Nothing
 
 --
 
@@ -165,26 +171,6 @@ disassemble1' pfx = do
                   o' 1 (Just False) True    = 16
                   o' 1 (Just True)  _       = 64
       in case opcode of
-        0x66 -> disassemble1' (pfx { pfxO16 = True })
-        0x67 -> disassemble1' (pfx { pfxA32 = True })
-
-        0x40 -> disassemble1' (pfx { pfxRex = Just 0x40 })
-        0x41 -> disassemble1' (pfx { pfxRex = Just 0x41 })
-        0x42 -> disassemble1' (pfx { pfxRex = Just 0x42 })
-        0x43 -> disassemble1' (pfx { pfxRex = Just 0x43 })
-        0x44 -> disassemble1' (pfx { pfxRex = Just 0x44 })
-        0x45 -> disassemble1' (pfx { pfxRex = Just 0x45 })
-        0x46 -> disassemble1' (pfx { pfxRex = Just 0x46 })
-        0x47 -> disassemble1' (pfx { pfxRex = Just 0x47 })
-        0x48 -> disassemble1' (pfx { pfxRex = Just 0x48 })
-        0x49 -> disassemble1' (pfx { pfxRex = Just 0x49 })
-        0x4a -> disassemble1' (pfx { pfxRex = Just 0x4a })
-        0x4b -> disassemble1' (pfx { pfxRex = Just 0x4b })
-        0x4c -> disassemble1' (pfx { pfxRex = Just 0x4c })
-        0x4d -> disassemble1' (pfx { pfxRex = Just 0x4d })
-        0x4e -> disassemble1' (pfx { pfxRex = Just 0x4e })
-        0x4f -> disassemble1' (pfx { pfxRex = Just 0x4f })
-
         0x00 -> op2 I_ADD pfx opWidth bitD
         0x01 -> op2 I_ADD pfx opWidth bitD
         0x02 -> op2 I_ADD pfx opWidth bitD
@@ -253,6 +239,29 @@ disassemble1' pfx = do
 -- TODO: 0x3e
         0x3f -> fail "invalid"
 
+        0x40 -> disassemble1' (pfx { pfxRex = Just 0x40 })
+        0x41 -> disassemble1' (pfx { pfxRex = Just 0x41 })
+        0x42 -> disassemble1' (pfx { pfxRex = Just 0x42 })
+        0x43 -> disassemble1' (pfx { pfxRex = Just 0x43 })
+        0x44 -> disassemble1' (pfx { pfxRex = Just 0x44 })
+        0x45 -> disassemble1' (pfx { pfxRex = Just 0x45 })
+        0x46 -> disassemble1' (pfx { pfxRex = Just 0x46 })
+        0x47 -> disassemble1' (pfx { pfxRex = Just 0x47 })
+        0x48 -> disassemble1' (pfx { pfxRex = Just 0x48 })
+        0x49 -> disassemble1' (pfx { pfxRex = Just 0x49 })
+        0x4a -> disassemble1' (pfx { pfxRex = Just 0x4a })
+        0x4b -> disassemble1' (pfx { pfxRex = Just 0x4b })
+        0x4c -> disassemble1' (pfx { pfxRex = Just 0x4c })
+        0x4d -> disassemble1' (pfx { pfxRex = Just 0x4d })
+        0x4e -> disassemble1' (pfx { pfxRex = Just 0x4e })
+        0x4f -> disassemble1' (pfx { pfxRex = Just 0x4f })
+
+        0x66 -> disassemble1' (pfx { pfxO16 = True })
+        0x67 -> disassemble1' (pfx { pfxA32 = True })
+
+        0xf2 -> disassemble1' (pfx { pfxRep = Just PrefixRepNE })
+        0xf3 -> disassemble1' (pfx { pfxRep = Just PrefixRep })
+
         0xf4 -> simple I_HLT pfx
         0xf5 -> simple I_CMC pfx
 -- TODO: 0xf
@@ -283,7 +292,8 @@ disassemble1' pfx = do
                 Just 8 -> (Immediate 8 . fromIntegral) <$> getInt8
                 Just 32 -> (Immediate 32 . fromIntegral) <$> getInt32le
                 _  -> return $ Immediate 0 0
-            ep = if opWidth == 8 && pfxO16 pfx then [PrefixO16] else []
+            ep = (if opWidth == 8 && pfxO16 pfx then [PrefixO16] else []) ++
+                 (maybe [] (:[]) (pfxRep pfx))
           in do
             sib <- if hasSib then (parseSib (pfxRex pfx) <$> getWord8) else return (RegNone,RegNone,0)
             disp <- getDisp dispSize <|> (return $ Immediate 0 0)
@@ -305,14 +315,16 @@ disassemble1' pfx = do
                  8 -> Reg8 RAX HalfL
                  32 -> (if bitTest 3 (pfxRex pfx) then Reg64 else Reg32) RAX
             imm = Immediate opWidth iv
-            ep = if (pfxA32 pfx) then [PrefixA32] else []
+            ep = (if (pfxA32 pfx) then [PrefixA32] else []) ++
+                 (maybe [] (:[]) (pfxRep pfx))
           in return (Instruction ep i [Op_Reg reg, Op_Imm imm])
     simple i pfx = let
-            ep = case (pfxO16 pfx, pfxA32 pfx) of
+            ep = (case (pfxO16 pfx, pfxA32 pfx) of
                      (False, False) -> []
                      (True, False)  -> [PrefixO16]
                      (False, True)  -> [PrefixA32]
-                     (True, True)   -> [PrefixO16, PrefixA32]
+                     (True, True)   -> [PrefixO16, PrefixA32]) ++
+                 (maybe [] (:[]) (pfxRep pfx))
         in return (Instruction ep i [])
 
 parseSib rex sib = let
