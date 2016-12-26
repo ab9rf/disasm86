@@ -54,6 +54,8 @@ data Operation =
       | I_STI
       | I_CLD
       | I_STD
+      | I_IN
+      | I_OUT
     deriving (Show, Eq)
 
 data Operand =
@@ -259,19 +261,23 @@ disassemble1' pfx = do
         0x66 -> disassemble1' (pfx { pfxO16 = True })
         0x67 -> disassemble1' (pfx { pfxA32 = True })
 
+        0xec -> simple I_IN pfx [Op_Reg (Reg8 RAX HalfL), Op_Reg (Reg16 RDX)]
+
+        0xee -> simple I_OUT pfx [Op_Reg (Reg16 RDX), Op_Reg (Reg8 RAX HalfL)]
+
         0xf2 -> disassemble1' (pfx { pfxRep = Just PrefixRepNE })
         0xf3 -> disassemble1' (pfx { pfxRep = Just PrefixRep })
 
-        0xf4 -> simple I_HLT pfx
-        0xf5 -> simple I_CMC pfx
+        0xf4 -> simple I_HLT pfx []
+        0xf5 -> simple I_CMC pfx []
 -- TODO: 0xf
 -- TODO: 0xf7
-        0xf8 -> simple I_CLC pfx
-        0xf9 -> simple I_STC pfx
-        0xfa -> simple I_CLI pfx
-        0xfb -> simple I_STI pfx
-        0xfc -> simple I_CLD pfx
-        0xfd -> simple I_STD pfx
+        0xf8 -> simple I_CLC pfx []
+        0xf9 -> simple I_STC pfx []
+        0xfa -> simple I_CLI pfx []
+        0xfb -> simple I_STI pfx []
+        0xfc -> simple I_CLD pfx []
+        0xfd -> simple I_STD pfx []
 
         _ -> fail ("invalid opcode " ++ show opcode)
   where
@@ -318,14 +324,14 @@ disassemble1' pfx = do
             ep = (if (pfxA32 pfx) then [PrefixA32] else []) ++
                  (maybe [] (:[]) (pfxRep pfx))
           in return (Instruction ep i [Op_Reg reg, Op_Imm imm])
-    simple i pfx = let
+    simple i pfx opl = let
             ep = (case (pfxO16 pfx, pfxA32 pfx) of
                      (False, False) -> []
                      (True, False)  -> [PrefixO16]
                      (False, True)  -> [PrefixA32]
                      (True, True)   -> [PrefixO16, PrefixA32]) ++
                  (maybe [] (:[]) (pfxRep pfx))
-        in return (Instruction ep i [])
+        in return (Instruction ep i opl)
 
 parseSib rex sib = let
                      br = bits 0 3 sib
@@ -371,6 +377,8 @@ opertext I_CLI = "cli"
 opertext I_STI = "sti"
 opertext I_CLD = "cld"
 opertext I_STD = "std"
+opertext I_IN  = "in"
+opertext I_OUT = "out"
 
 --
 
