@@ -30,6 +30,8 @@ test-suite test
                       , QuickCheck
                       , hspec
                       , bytestring
+                      , hdis86
+                      , random
     other-modules:      DisassemblerSpec
     default-language:   Haskell2010
 

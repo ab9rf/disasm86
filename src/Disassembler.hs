@@ -34,6 +34,13 @@ data Prefix = Prefix
 
 data Operation =
         I_ADD
+      | I_OR
+      | I_ADC
+      | I_SBB
+      | I_AND
+      | I_SUB
+      | I_XOR
+      | I_CMP
     deriving (Show, Eq)
 
 data Operand =
@@ -80,16 +87,11 @@ textrep (Instruction p oper operands) =
       in case t2 of "" -> t1
                     _  -> t1 ++ " " ++ t2
 
-opertext :: Operation -> String
-opertext I_ADD = "add"
-
 operandtext :: Operand -> String
 operandtext (Op_Reg r) = registertext r
 operandtext (Op_Mem _ base RegNone _ (Immediate _ 0)) = "[" ++ registertext base ++ "]"
 
-registertext :: Register -> String
-registertext (Reg64 RAX) = "rax"
-registertext (Reg8 RAX HalfL) = "al"
+
 
 sibtext :: (Register, Word8) -> String
 sibtext _ = "<<sib>>" -- TODO
@@ -123,6 +125,7 @@ disassemble1' :: PrefixState -> Get Instruction
 disassemble1' pfx = do
     opcode <- getWord8
     let bitW = (opcode .&. (bit 0))
+        bitD = (opcode .&. (bit 1))
         opWidth = o' bitW (fmap (\x -> (x .&. (bit 4)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
             where o' 0 _ _                  = 8
                   o' 1 Nothing      False   = 32
@@ -131,10 +134,71 @@ disassemble1' pfx = do
                   o' 1 (Just False) True    = 16
                   o' 1 (Just True)  _       = 64
       in case opcode of
-        0x00 -> op2 I_ADD pfx opWidth
+        0x66 -> disassemble1' (pfx { pfxO16 = True })
+        0x67 -> disassemble1' (pfx { pfxA32 = True })
+
+        0x40 -> disassemble1' (pfx { pfxRex = Just 0x40 })
+        0x41 -> disassemble1' (pfx { pfxRex = Just 0x41 })
+        0x42 -> disassemble1' (pfx { pfxRex = Just 0x42 })
+        0x43 -> disassemble1' (pfx { pfxRex = Just 0x43 })
+        0x44 -> disassemble1' (pfx { pfxRex = Just 0x44 })
+        0x45 -> disassemble1' (pfx { pfxRex = Just 0x45 })
+        0x46 -> disassemble1' (pfx { pfxRex = Just 0x46 })
+        0x47 -> disassemble1' (pfx { pfxRex = Just 0x47 })
+        0x48 -> disassemble1' (pfx { pfxRex = Just 0x48 })
+        0x49 -> disassemble1' (pfx { pfxRex = Just 0x49 })
+        0x4a -> disassemble1' (pfx { pfxRex = Just 0x4a })
+        0x4b -> disassemble1' (pfx { pfxRex = Just 0x4b })
+        0x4c -> disassemble1' (pfx { pfxRex = Just 0x4c })
+        0x4d -> disassemble1' (pfx { pfxRex = Just 0x4d })
+        0x4e -> disassemble1' (pfx { pfxRex = Just 0x4e })
+        0x4f -> disassemble1' (pfx { pfxRex = Just 0x4f })
+
+        0x00 -> op2 I_ADD pfx opWidth bitD
+        0x01 -> op2 I_ADD pfx opWidth bitD
+        0x02 -> op2 I_ADD pfx opWidth bitD
+        0x03 -> op2 I_ADD pfx opWidth bitD
+
+        0x08 -> op2 I_OR pfx opWidth bitD
+        0x09 -> op2 I_OR pfx opWidth bitD
+        0x0a -> op2 I_OR pfx opWidth bitD
+        0x0b -> op2 I_OR pfx opWidth bitD
+
+        0x10 -> op2 I_ADC pfx opWidth bitD
+        0x11 -> op2 I_ADC pfx opWidth bitD
+        0x12 -> op2 I_ADC pfx opWidth bitD
+        0x13 -> op2 I_ADC pfx opWidth bitD
+
+        0x18 -> op2 I_SBB pfx opWidth bitD
+        0x19 -> op2 I_SBB pfx opWidth bitD
+        0x1a -> op2 I_SBB pfx opWidth bitD
+        0x1b -> op2 I_SBB pfx opWidth bitD
+
+        0x20 -> op2 I_AND pfx opWidth bitD
+        0x21 -> op2 I_AND pfx opWidth bitD
+        0x22 -> op2 I_AND pfx opWidth bitD
+        0x23 -> op2 I_AND pfx opWidth bitD
+
+        0x28 -> op2 I_SUB pfx opWidth bitD
+        0x29 -> op2 I_SUB pfx opWidth bitD
+        0x2a -> op2 I_SUB pfx opWidth bitD
+        0x2b -> op2 I_SUB pfx opWidth bitD
+
+        0x30 -> op2 I_XOR pfx opWidth bitD
+        0x31 -> op2 I_XOR pfx opWidth bitD
+        0x32 -> op2 I_XOR pfx opWidth bitD
+        0x33 -> op2 I_XOR pfx opWidth bitD
+
+        0x38 -> op2 I_CMP pfx opWidth bitD
+        0x39 -> op2 I_CMP pfx opWidth bitD
+        0x3a -> op2 I_CMP pfx opWidth bitD
+        0x3b -> op2 I_CMP pfx opWidth bitD
+
+
+
         _ -> fail ("invalid opcode " ++ show opcode)
   where
-    op2 i pfx opWidth = do
+    op2 i pfx opWidth direction = do
         modrm <- getWord8
         let b'mod = bits 6 2 modrm
             b'reg = bits 3 3 modrm
@@ -158,7 +222,10 @@ disassemble1' pfx = do
             rm <- return $ case b'mod of
                     0 -> Op_Mem opWidth (selectreg 0 b'rm 64 (pfxRex pfx)) (fst sib) (snd sib) disp
                     3 -> Op_Reg (selectreg 0 b'rm opWidth (pfxRex pfx))
-            return (Instruction [] i [rm, Op_Reg reg])
+            let ops = case direction of
+                        0 -> [rm, Op_Reg reg]
+                        _ -> [Op_Reg reg, rm]
+              in return (Instruction [] i ops)
 
 selectreg rexBit reg opWidth rex = let
                 rvec' = case () of
@@ -176,3 +243,91 @@ selectreg rexBit reg opWidth rex = let
                         64 -> map Reg64 rvec'
             in rvec !! reg
 
+--
+
+opertext :: Operation -> String
+opertext I_ADD = "add"
+opertext I_OR  = "or"
+opertext I_ADC = "adc"
+opertext I_SBB = "sbb"
+opertext I_AND = "and"
+opertext I_SUB = "sub"
+opertext I_XOR = "xor"
+opertext I_CMP = "cmd"
+
+
+--
+
+registertext :: Register -> String
+registertext (Reg64 RAX) = "rax"
+registertext (Reg64 RCX) = "rcx"
+registertext (Reg64 RDX) = "rdx"
+registertext (Reg64 RBX) = "rbx"
+registertext (Reg64 RSP) = "rsp"
+registertext (Reg64 RBP) = "rbp"
+registertext (Reg64 RSI) = "rsi"
+registertext (Reg64 RDI) = "rdi"
+registertext (Reg64 R8)  = "r8"
+registertext (Reg64 R9)  = "r9"
+registertext (Reg64 R10) = "r10"
+registertext (Reg64 R11) = "r11"
+registertext (Reg64 R12) = "r12"
+registertext (Reg64 R13) = "r13"
+registertext (Reg64 R14) = "r14"
+registertext (Reg64 R15) = "r15"
+
+registertext (Reg32 RAX) = "eax"
+registertext (Reg32 RCX) = "ecx"
+registertext (Reg32 RDX) = "edx"
+registertext (Reg32 RBX) = "ebx"
+registertext (Reg32 RSP) = "esp"
+registertext (Reg32 RBP) = "ebp"
+registertext (Reg32 RSI) = "esi"
+registertext (Reg32 RDI) = "edi"
+registertext (Reg32 R8)  = "r8d"
+registertext (Reg32 R9)  = "r9d"
+registertext (Reg32 R10) = "r10d"
+registertext (Reg32 R11) = "r11d"
+registertext (Reg32 R12) = "r12d"
+registertext (Reg32 R13) = "r13d"
+registertext (Reg32 R14) = "r14d"
+registertext (Reg32 R15) = "r15d"
+
+registertext (Reg16 RAX) = "ax"
+registertext (Reg16 RCX) = "cx"
+registertext (Reg16 RDX) = "dx"
+registertext (Reg16 RBX) = "bx"
+registertext (Reg16 RSP) = "sp"
+registertext (Reg16 RBP) = "bp"
+registertext (Reg16 RSI) = "si"
+registertext (Reg16 RDI) = "di"
+registertext (Reg16 R8)  = "r8w"
+registertext (Reg16 R9)  = "r9w"
+registertext (Reg16 R10) = "r10w"
+registertext (Reg16 R11) = "r11w"
+registertext (Reg16 R12) = "r12w"
+registertext (Reg16 R13) = "r13w"
+registertext (Reg16 R14) = "r14w"
+registertext (Reg16 R15) = "r15w"
+
+registertext (Reg8 RAX HalfL) = "al"
+registertext (Reg8 RCX HalfL) = "cl"
+registertext (Reg8 RDX HalfL) = "dl"
+registertext (Reg8 RBX HalfL) = "bl"
+registertext (Reg8 RSP HalfL) = "spl"
+registertext (Reg8 RBP HalfL) = "bpl"
+registertext (Reg8 RSI HalfL) = "sil"
+registertext (Reg8 RDI HalfL) = "dil"
+registertext (Reg8 R8 HalfL)  = "r8b"
+registertext (Reg8 R9 HalfL)  = "r9b"
+registertext (Reg8 R10 HalfL) = "r10b"
+registertext (Reg8 R11 HalfL) = "r11b"
+registertext (Reg8 R12 HalfL) = "r12b"
+registertext (Reg8 R13 HalfL) = "r13b"
+registertext (Reg8 R14 HalfL) = "r14b"
+registertext (Reg8 R15 HalfL) = "r15b"
+
+registertext (Reg8 RAX HalfH) = "ah"
+registertext (Reg8 RCX HalfH) = "ch"
+registertext (Reg8 RDX HalfH) = "dh"
+registertext (Reg8 RBX HalfH) = "bh"
