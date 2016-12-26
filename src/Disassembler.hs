@@ -90,11 +90,8 @@ textrep (Instruction p oper operands) =
 operandtext :: Operand -> String
 operandtext (Op_Reg r) = registertext r
 operandtext (Op_Mem _ base RegNone _ (Immediate _ 0)) = "[" ++ registertext base ++ "]"
-
-
-
-sibtext :: (Register, Word8) -> String
-sibtext _ = "<<sib>>" -- TODO
+operandtext (Op_Mem _ base idx sf (Immediate _ 0)) = "[" ++ registertext base ++ "][" ++ registertext idx ++ "*" ++ (show sf) ++ "]"
+operandtext o = "!operand "++ (show o) ++ "!"
 
 disassemble :: ByteString -> ([Instruction], ByteString)
 disassemble s = case runGetOrFail disassemble1 s of
@@ -203,11 +200,11 @@ disassemble1' pfx = do
         let b'mod = bits 6 2 modrm
             b'reg = bits 3 3 modrm
             b'rm  = bits 0 3 modrm
+            aWidth = if (pfxA32 pfx) then 32 else 64
             reg = selectreg 2 b'reg opWidth (pfxRex pfx)
             hasSib = (b'mod /= 3 && b'rm == 4)
             dispSize = case (b'mod, b'rm) of
                 (0,5) -> Just 32
-                (0,6) -> Just 32
                 (1,_) -> Just 8
                 (2,_) -> Just 32
                 _     -> Nothing
@@ -219,9 +216,9 @@ disassemble1' pfx = do
           in do
             sib <- if hasSib then (parseSib <$> getWord8) else return (RegNone,0)
             disp <- getDisp dispSize <|> (return $ Immediate 0 0)
-            rm <- return $ case b'mod of
-                    0 -> Op_Mem opWidth (selectreg 0 b'rm 64 (pfxRex pfx)) (fst sib) (snd sib) disp
-                    3 -> Op_Reg (selectreg 0 b'rm opWidth (pfxRex pfx))
+            rm <- return $ case (b'mod, b'rm) of
+                    (0,_) -> Op_Mem opWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) (fst sib) (snd sib) disp
+                    (3,_) -> Op_Reg (selectreg 0 b'rm opWidth (pfxRex pfx))
             let ops = case direction of
                         0 -> [rm, Op_Reg reg]
                         _ -> [Op_Reg reg, rm]
@@ -235,8 +232,8 @@ selectreg rexBit reg opWidth rex = let
                                 [RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI]
                 rvec = case opWidth of
                         8 | isNothing rex ->
-                                [Reg8 RAX HalfL, Reg8 RCX HalfL, Reg8 RDX HalfL, Reg8 RDX HalfL,
-                                    Reg8 RAX HalfH, Reg8 RCX HalfH, Reg8 RDX HalfH, Reg8 RDX HalfH]
+                                [Reg8 RAX HalfL, Reg8 RCX HalfL, Reg8 RDX HalfL, Reg8 RBX HalfL,
+                                 Reg8 RAX HalfH, Reg8 RCX HalfH, Reg8 RDX HalfH, Reg8 RBX HalfH]
                           | isJust rex -> map (\i -> Reg8 i HalfL) rvec'
                         16 -> map Reg16 rvec'
                         32 -> map Reg32 rvec'
@@ -331,3 +328,5 @@ registertext (Reg8 RAX HalfH) = "ah"
 registertext (Reg8 RCX HalfH) = "ch"
 registertext (Reg8 RDX HalfH) = "dh"
 registertext (Reg8 RBX HalfH) = "bh"
+
+registertext r = "!reg:" ++ (show r) ++ "!"
