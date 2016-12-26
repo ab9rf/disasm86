@@ -307,9 +307,13 @@ disassemble1' pfx = do
             imm = Immediate opWidth iv
             ep = if (pfxA32 pfx) then [PrefixA32] else []
           in return (Instruction ep i [Op_Reg reg, Op_Imm imm])
-    simple i pfx = let ep = []
-        in do
-            return (Instruction [] i [])
+    simple i pfx = let
+            ep = case (pfxO16 pfx, pfxA32 pfx) of
+                     (False, False) -> []
+                     (True, False)  -> [PrefixO16]
+                     (False, True)  -> [PrefixA32]
+                     (True, True)   -> [PrefixO16, PrefixA32]
+        in return (Instruction ep i [])
 
 parseSib rex sib = let
                      br = bits 0 3 sib
