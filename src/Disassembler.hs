@@ -20,6 +20,7 @@ import Data.Bits
 import Data.List (intercalate)
 import Data.Maybe (isJust, isNothing, fromJust)
 import Control.Applicative ( (<|>) )
+import Numeric (showHex)
 
 import qualified Data.ByteString.Lazy as B
 
@@ -29,7 +30,9 @@ data Instruction = Instruction {
     , inOperands  :: [Operand]
     } deriving (Show, Eq)
 
-data Prefix = Prefix
+data Prefix =
+      PrefixO16
+    | PrefixA32
     deriving (Show, Eq)
 
 data Operation =
@@ -52,6 +55,7 @@ data Operand =
               , mDisp  :: ImmediateS
               }
       | Op_Reg Register
+      | Op_Imm ImmediateU
     deriving (Show, Eq)
 
 data Register =
@@ -82,16 +86,38 @@ type ImmediateU = Immediate Word64
 
 textrep :: Instruction -> String
 textrep (Instruction p oper operands) =
-    let t1 = opertext oper
+    let t1 = tp ++ (opertext oper)
         t2 = intercalate ", " (map operandtext operands)
+        tp = concat (map prefixtext p)
       in case t2 of "" -> t1
                     _  -> t1 ++ " " ++ t2
 
+prefixtext PrefixA32 = "a32 "
+prefixtext PrefixO16 = "o16 "
+
 operandtext :: Operand -> String
 operandtext (Op_Reg r) = registertext r
-operandtext (Op_Mem _ base RegNone _ (Immediate _ 0)) = "[" ++ registertext base ++ "]"
-operandtext (Op_Mem _ base idx sf (Immediate _ 0)) = "[" ++ registertext base ++ "][" ++ registertext idx ++ "*" ++ (show sf) ++ "]"
+operandtext (Op_Mem _ base idx sf ofs) =
+    let bs = registertext base
+        is = case idx  of RegNone -> ""; _ -> ((registertext idx) ++ "*" ++ (show sf))
+        os = case ofs  of Immediate _ 0 -> ""
+                          Immediate _ v | v > 0 -> ("0x" ++ (showHex v) "")
+                                        | v < 0 -> ("-0x" ++ (showHex (negate v)) "")
+        bsis = case (bs,is) of
+                    ("",_) -> is
+                    (_,"") -> bs
+                    (_,_) -> bs ++ "+" ++ is
+        str = case (bsis,os) of
+                    ("",_) -> os
+                    (_,"") -> bsis
+                    (_,('-':_)) -> bsis ++ os
+                    (_,_) -> bsis ++ "+" ++ os
+     in "[" ++ str ++ "]"
+operandtext (Op_Imm i) = immediatetext i
+
 operandtext o = "!operand "++ (show o) ++ "!"
+
+immediatetext (Immediate _ v) = "0x" ++ (showHex v "")
 
 disassemble :: ByteString -> ([Instruction], ByteString)
 disassemble s = case runGetOrFail disassemble1 s of
@@ -155,41 +181,69 @@ disassemble1' pfx = do
         0x01 -> op2 I_ADD pfx opWidth bitD
         0x02 -> op2 I_ADD pfx opWidth bitD
         0x03 -> op2 I_ADD pfx opWidth bitD
-
+        0x04 -> opImm I_ADD pfx opWidth
+        0x05 -> opImm I_ADD pfx opWidth
+        0x06 -> fail "invalid"
+        0x07 -> fail "invalid"
         0x08 -> op2 I_OR pfx opWidth bitD
         0x09 -> op2 I_OR pfx opWidth bitD
         0x0a -> op2 I_OR pfx opWidth bitD
         0x0b -> op2 I_OR pfx opWidth bitD
+        0x0c -> opImm I_OR pfx opWidth
+        0x0d -> opImm I_OR pfx opWidth
+        0x0e -> fail "invalid"
+-- TODO: 0x0f
 
         0x10 -> op2 I_ADC pfx opWidth bitD
         0x11 -> op2 I_ADC pfx opWidth bitD
         0x12 -> op2 I_ADC pfx opWidth bitD
         0x13 -> op2 I_ADC pfx opWidth bitD
-
+        0x14 -> opImm I_ADC pfx opWidth
+        0x15 -> opImm I_ADC pfx opWidth
+        0x16 -> fail "invalid"
+        0x17 -> fail "invalid"
         0x18 -> op2 I_SBB pfx opWidth bitD
         0x19 -> op2 I_SBB pfx opWidth bitD
         0x1a -> op2 I_SBB pfx opWidth bitD
         0x1b -> op2 I_SBB pfx opWidth bitD
+        0x1c -> opImm I_SBB pfx opWidth
+        0x1d -> opImm I_SBB pfx opWidth
+        0x1e -> fail "invalid"
+        0x1f -> fail "invalid"
 
         0x20 -> op2 I_AND pfx opWidth bitD
         0x21 -> op2 I_AND pfx opWidth bitD
         0x22 -> op2 I_AND pfx opWidth bitD
         0x23 -> op2 I_AND pfx opWidth bitD
-
+        0x24 -> opImm I_AND pfx opWidth
+        0x25 -> opImm I_AND pfx opWidth
+-- TODO: 0x26
+        0x27 -> fail "invalid"
         0x28 -> op2 I_SUB pfx opWidth bitD
         0x29 -> op2 I_SUB pfx opWidth bitD
         0x2a -> op2 I_SUB pfx opWidth bitD
         0x2b -> op2 I_SUB pfx opWidth bitD
+        0x2c -> opImm I_SUB pfx opWidth
+        0x2d -> opImm I_SUB pfx opWidth
+-- TODO: 0x2e
+        0x2f -> fail "invalid"
 
         0x30 -> op2 I_XOR pfx opWidth bitD
         0x31 -> op2 I_XOR pfx opWidth bitD
         0x32 -> op2 I_XOR pfx opWidth bitD
         0x33 -> op2 I_XOR pfx opWidth bitD
-
+        0x34 -> opImm I_XOR pfx opWidth
+        0x35 -> opImm I_XOR pfx opWidth
+ -- TOODO: 03x6
+        0x37 -> fail "invalid"
         0x38 -> op2 I_CMP pfx opWidth bitD
         0x39 -> op2 I_CMP pfx opWidth bitD
         0x3a -> op2 I_CMP pfx opWidth bitD
         0x3b -> op2 I_CMP pfx opWidth bitD
+        0x3c -> opImm I_CMP pfx opWidth
+        0x3d -> opImm I_CMP pfx opWidth
+-- TODO: 0x3e
+        0x3f -> fail "invalid"
 
 
 
@@ -209,20 +263,42 @@ disassemble1' pfx = do
                 (2,_) -> Just 32
                 _     -> Nothing
             getDisp sz = case sz of
-                Just 8 -> (Immediate 8 . fromIntegral) <$> getWord8
-                Just 32 -> (Immediate 32 . fromIntegral) <$> getWord32le
+                Just 8 -> (Immediate 8 . fromIntegral) <$> getInt8
+                Just 32 -> (Immediate 32 . fromIntegral) <$> getInt32le
                 _  -> return $ Immediate 0 0
-            parseSib sib = (RegNone, 0) -- FIXME
           in do
-            sib <- if hasSib then (parseSib <$> getWord8) else return (RegNone,0)
+            sib <- if hasSib then (parseSib (pfxRex pfx) <$> getWord8) else return (RegNone,RegNone,0)
             disp <- getDisp dispSize <|> (return $ Immediate 0 0)
             rm <- return $ case (b'mod, b'rm) of
-                    (0,_) -> Op_Mem opWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) (fst sib) (snd sib) disp
+                    (0,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp
+                    (1,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp
+                    (2,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp
+                    (0,_) -> Op_Mem opWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) RegNone 0 disp
+                    (1,_) -> Op_Mem opWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) RegNone 0 disp
                     (3,_) -> Op_Reg (selectreg 0 b'rm opWidth (pfxRex pfx))
             let ops = case direction of
                         0 -> [rm, Op_Reg reg]
                         _ -> [Op_Reg reg, rm]
               in return (Instruction [] i ops)
+    opImm i pfx opWidth = do
+        iv <- case opWidth of
+                 8 -> fromIntegral <$> getWord8
+                 32 -> fromIntegral <$> getWord32le
+        let reg = case opWidth of
+                 8 -> Reg8 RAX HalfL
+                 32 -> (if bitTest 3 (pfxRex pfx) then Reg64 else Reg32) RAX
+            imm = Immediate opWidth iv
+            ep = if (pfxA32 pfx) then [PrefixA32] else []
+          in return (Instruction ep i [Op_Reg reg, Op_Imm imm])
+
+parseSib rex sib = let
+                     br = bits 0 3 sib
+                     ir = bits 3 3 sib
+                     ss = bits 6 2 sib
+                     breg = selectreg 0 br 64 rex
+                     ireg = selectreg 1 ir 64 rex
+                     sf = case ss of { 0 -> 1; 1 -> 2; 2 -> 4; 4 -> 8 }
+                    in (breg, ireg, sf)
 
 selectreg rexBit reg opWidth rex = let
                 rvec' = case () of
@@ -250,12 +326,14 @@ opertext I_SBB = "sbb"
 opertext I_AND = "and"
 opertext I_SUB = "sub"
 opertext I_XOR = "xor"
-opertext I_CMP = "cmd"
+opertext I_CMP = "cmp"
 
 
 --
 
 registertext :: Register -> String
+registertext RegNone = ""
+
 registertext (Reg64 RAX) = "rax"
 registertext (Reg64 RCX) = "rcx"
 registertext (Reg64 RDX) = "rdx"
