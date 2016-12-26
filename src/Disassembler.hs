@@ -56,6 +56,8 @@ data Operation =
       | I_STD
       | I_IN
       | I_OUT
+      | I_CALL
+      | I_JMP
     deriving (Show, Eq)
 
 data Operand =
@@ -134,13 +136,13 @@ operandtext o = "!operand "++ (show o) ++ "!"
 
 immediatetext (Immediate _ v) = "0x" ++ (showHex v "")
 
-disassemble :: ByteString -> ([Instruction], ByteString)
-disassemble s = case runGetOrFail disassemble1 s of
+disassemble :: Word64 -> ByteString -> ([Instruction], ByteString)
+disassemble ofs s = case runGetOrFail (disassemble1 ofs) s of
                     Left _          -> ([], s)
-                    Right (r, _, i) -> let (i',r') = disassemble r in (i:i', r')
+                    Right (r, b, i) -> let (i',r') = disassemble (ofs+(fromIntegral b)) r in (i:i', r')
 
-disassemble1 :: Get Instruction
-disassemble1 =  disassemble1' pfxNone
+disassemble1 :: Word64 -> Get Instruction
+disassemble1 ofs = disassemble1' pfxNone ofs
 
 data PrefixState = PrefixState {
           pfxRex ::  Maybe Word8
@@ -160,8 +162,8 @@ bitTest i v = case v of
                 Just n  -> n .&. (bit i) /= 0
 
 -- this is the long mode (64-bit) disassembler
-disassemble1' :: PrefixState -> Get Instruction
-disassemble1' pfx = do
+disassemble1' :: PrefixState -> Word64 -> Get Instruction
+disassemble1' pfx ofs = do
     opcode <- getWord8
     let bitW = (opcode .&. (bit 0))
         bitD = (opcode .&. (bit 1))
@@ -241,36 +243,39 @@ disassemble1' pfx = do
 -- TODO: 0x3e
         0x3f -> fail "invalid"
 
-        0x40 -> disassemble1' (pfx { pfxRex = Just 0x40 })
-        0x41 -> disassemble1' (pfx { pfxRex = Just 0x41 })
-        0x42 -> disassemble1' (pfx { pfxRex = Just 0x42 })
-        0x43 -> disassemble1' (pfx { pfxRex = Just 0x43 })
-        0x44 -> disassemble1' (pfx { pfxRex = Just 0x44 })
-        0x45 -> disassemble1' (pfx { pfxRex = Just 0x45 })
-        0x46 -> disassemble1' (pfx { pfxRex = Just 0x46 })
-        0x47 -> disassemble1' (pfx { pfxRex = Just 0x47 })
-        0x48 -> disassemble1' (pfx { pfxRex = Just 0x48 })
-        0x49 -> disassemble1' (pfx { pfxRex = Just 0x49 })
-        0x4a -> disassemble1' (pfx { pfxRex = Just 0x4a })
-        0x4b -> disassemble1' (pfx { pfxRex = Just 0x4b })
-        0x4c -> disassemble1' (pfx { pfxRex = Just 0x4c })
-        0x4d -> disassemble1' (pfx { pfxRex = Just 0x4d })
-        0x4e -> disassemble1' (pfx { pfxRex = Just 0x4e })
-        0x4f -> disassemble1' (pfx { pfxRex = Just 0x4f })
+        0x40 -> disassemble1' (pfx { pfxRex = Just 0x40 }) ofs
+        0x41 -> disassemble1' (pfx { pfxRex = Just 0x41 }) ofs
+        0x42 -> disassemble1' (pfx { pfxRex = Just 0x42 }) ofs
+        0x43 -> disassemble1' (pfx { pfxRex = Just 0x43 }) ofs
+        0x44 -> disassemble1' (pfx { pfxRex = Just 0x44 }) ofs
+        0x45 -> disassemble1' (pfx { pfxRex = Just 0x45 }) ofs
+        0x46 -> disassemble1' (pfx { pfxRex = Just 0x46 }) ofs
+        0x47 -> disassemble1' (pfx { pfxRex = Just 0x47 }) ofs
+        0x48 -> disassemble1' (pfx { pfxRex = Just 0x48 }) ofs
+        0x49 -> disassemble1' (pfx { pfxRex = Just 0x49 }) ofs
+        0x4a -> disassemble1' (pfx { pfxRex = Just 0x4a }) ofs
+        0x4b -> disassemble1' (pfx { pfxRex = Just 0x4b }) ofs
+        0x4c -> disassemble1' (pfx { pfxRex = Just 0x4c }) ofs
+        0x4d -> disassemble1' (pfx { pfxRex = Just 0x4d }) ofs
+        0x4e -> disassemble1' (pfx { pfxRex = Just 0x4e }) ofs
+        0x4f -> disassemble1' (pfx { pfxRex = Just 0x4f }) ofs
 
-        0x66 -> disassemble1' (pfx { pfxO16 = True })
-        0x67 -> disassemble1' (pfx { pfxA32 = True })
+        0x66 -> disassemble1' (pfx { pfxO16 = True }) ofs
+        0x67 -> disassemble1' (pfx { pfxA32 = True }) ofs
+
+        0xe8 -> jmpcall I_CALL pfx ofs
+        0xe9 -> jmpcall I_JMP pfx ofs
 
         0xec -> simple I_IN pfx [Op_Reg (Reg8 RAX HalfL), Op_Reg (Reg16 RDX)]
 
         0xee -> simple I_OUT pfx [Op_Reg (Reg16 RDX), Op_Reg (Reg8 RAX HalfL)]
 
-        0xf2 -> disassemble1' (pfx { pfxRep = Just PrefixRepNE })
-        0xf3 -> disassemble1' (pfx { pfxRep = Just PrefixRep })
+        0xf2 -> disassemble1' (pfx { pfxRep = Just PrefixRepNE }) ofs
+        0xf3 -> disassemble1' (pfx { pfxRep = Just PrefixRep }) ofs
 
         0xf4 -> simple I_HLT pfx []
         0xf5 -> simple I_CMC pfx []
--- TODO: 0xf
+-- TODO: 0xf6
 -- TODO: 0xf7
         0xf8 -> simple I_CLC pfx []
         0xf9 -> simple I_STC pfx []
@@ -332,6 +337,21 @@ disassemble1' pfx = do
                      (True, True)   -> [PrefixO16, PrefixA32]) ++
                  (maybe [] (:[]) (pfxRep pfx))
         in return (Instruction ep i opl)
+    jmpcall i pfx ofs = let
+            opWidth = case (pfxO16 pfx) of
+                     (True)  -> 16
+                     (False) -> 32
+             in do
+                disp <- case opWidth of
+                        16 -> fromIntegral <$> getInt16le
+                        32 -> fromIntegral <$> getInt32le
+                        64 -> fromIntegral <$> getInt64le
+                eip <- ((ofs+).fromIntegral <$> bytesRead)
+                let iv = bits 0 64 (eip + disp)
+                    imm = Immediate opWidth iv
+                    ep = (if (pfxA32 pfx) then [PrefixA32] else []) ++
+                           (maybe [] (:[]) (pfxRep pfx))
+                  in return (Instruction ep i [Op_Imm imm])
 
 parseSib rex sib = let
                      br = bits 0 3 sib
@@ -379,6 +399,8 @@ opertext I_CLD = "cld"
 opertext I_STD = "std"
 opertext I_IN  = "in"
 opertext I_OUT = "out"
+opertext I_CALL = "call"
+opertext I_JMP = "jmp"
 
 --
 

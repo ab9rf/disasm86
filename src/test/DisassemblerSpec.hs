@@ -18,11 +18,11 @@ import System.Random
 spec :: Spec
 spec = do
     describe "basic test" $ do
-        it "Empty bytestring" $ D.disassemble B.empty `shouldBe` ([], B.empty)
+        it "Empty bytestring" $ D.disassemble 0x1000 B.empty `shouldBe` ([], B.empty)
 
     describe "basic disassembly" $ do
 -- 0x0000: add [rax], al
-        it "00" $ D.disassemble (B.pack [0x00, 0x00]) `shouldBe`
+        it "00" $ D.disassemble 0x1000 (B.pack [0x00, 0x00]) `shouldBe`
             ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0)
                                        , D.Op_Reg (D.Reg8 D.RAX D.HalfL)]]
             , B.empty)
@@ -32,7 +32,7 @@ spec = do
                       `shouldBe` "add [rax], al"
     describe "instructions" $ do
         mapM_
-            (\(Test d i o) -> (it d $ (intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble i)))))
+            (\(Test d i o) -> (it d $ (intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble 0x1000 i)))))
                                     `shouldBe` o))
             tests
 
