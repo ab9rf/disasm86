@@ -44,6 +44,14 @@ data Operation =
       | I_SUB
       | I_XOR
       | I_CMP
+      | I_HLT
+      | I_CMC
+      | I_CLC
+      | I_STC
+      | I_CLI
+      | I_STI
+      | I_CLD
+      | I_STD
     deriving (Show, Eq)
 
 data Operand =
@@ -245,7 +253,16 @@ disassemble1' pfx = do
 -- TODO: 0x3e
         0x3f -> fail "invalid"
 
-
+        0xf4 -> simple I_HLT pfx
+        0xf5 -> simple I_CMC pfx
+-- TODO: 0xf
+-- TODO: 0xf7
+        0xf8 -> simple I_CLC pfx
+        0xf9 -> simple I_STC pfx
+        0xfa -> simple I_CLI pfx
+        0xfb -> simple I_STI pfx
+        0xfc -> simple I_CLD pfx
+        0xfd -> simple I_STD pfx
 
         _ -> fail ("invalid opcode " ++ show opcode)
   where
@@ -266,20 +283,20 @@ disassemble1' pfx = do
                 Just 8 -> (Immediate 8 . fromIntegral) <$> getInt8
                 Just 32 -> (Immediate 32 . fromIntegral) <$> getInt32le
                 _  -> return $ Immediate 0 0
+            ep = if opWidth == 8 && pfxO16 pfx then [PrefixO16] else []
           in do
             sib <- if hasSib then (parseSib (pfxRex pfx) <$> getWord8) else return (RegNone,RegNone,0)
             disp <- getDisp dispSize <|> (return $ Immediate 0 0)
             rm <- return $ case (b'mod, b'rm) of
+                    (3,_) -> Op_Reg (selectreg 0 b'rm opWidth (pfxRex pfx))
                     (0,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp
                     (1,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp
                     (2,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp
-                    (0,_) -> Op_Mem opWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) RegNone 0 disp
-                    (1,_) -> Op_Mem opWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) RegNone 0 disp
-                    (3,_) -> Op_Reg (selectreg 0 b'rm opWidth (pfxRex pfx))
+                    (_,_) -> Op_Mem opWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) RegNone 0 disp
             let ops = case direction of
                         0 -> [rm, Op_Reg reg]
                         _ -> [Op_Reg reg, rm]
-              in return (Instruction [] i ops)
+              in return (Instruction ep i ops)
     opImm i pfx opWidth = do
         iv <- case opWidth of
                  8 -> fromIntegral <$> getWord8
@@ -290,6 +307,9 @@ disassemble1' pfx = do
             imm = Immediate opWidth iv
             ep = if (pfxA32 pfx) then [PrefixA32] else []
           in return (Instruction ep i [Op_Reg reg, Op_Imm imm])
+    simple i pfx = let ep = []
+        in do
+            return (Instruction [] i [])
 
 parseSib rex sib = let
                      br = bits 0 3 sib
@@ -327,7 +347,14 @@ opertext I_AND = "and"
 opertext I_SUB = "sub"
 opertext I_XOR = "xor"
 opertext I_CMP = "cmp"
-
+opertext I_HLT = "hlt"
+opertext I_CMC = "cmc"
+opertext I_CLC = "clc"
+opertext I_STC = "stc"
+opertext I_CLI = "cli"
+opertext I_STI = "sti"
+opertext I_CLD = "cld"
+opertext I_STD = "std"
 
 --
 

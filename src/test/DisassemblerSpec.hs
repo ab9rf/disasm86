@@ -51,10 +51,11 @@ tests = let
                         ]
            cfg = Config Intel Mode64 SyntaxIntel (0x1000 :: Word64)
            one bs = let m = head (disassembleMetadata cfg (B.toStrict bs))
-                        s = mdAssembly m
-                        s' = case s of "invalid " -> ""
-                                       _          -> s
-                    in Test (mdHex m) bs s'
+                        s'' = mdAssembly m
+                        s' = (if (last s'' == ' ') then init else id) s''
+                        s = case s' of "invalid" -> ""
+                                       _         -> s'
+                    in Test (mdHex m) bs s
            all = map one input
            cnt = length all
            rg = mkStdGen 0
