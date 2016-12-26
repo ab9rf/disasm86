@@ -58,6 +58,10 @@ data Operation =
       | I_OUT
       | I_CALL
       | I_JMP
+      | I_LOOPNZ
+      | I_LOOPZ
+      | I_LOOP
+      | I_JECXZ
     deriving (Show, Eq)
 
 data Operand =
@@ -263,6 +267,11 @@ disassemble1' pfx ofs = do
         0x66 -> disassemble1' (pfx { pfxO16 = True }) ofs
         0x67 -> disassemble1' (pfx { pfxA32 = True }) ofs
 
+        0xe0 -> jshort I_LOOPNZ pfx ofs
+        0xe1 -> jshort I_LOOPZ pfx ofs
+        0xe2 -> jshort I_LOOP pfx ofs
+        0xe3 -> jshort I_JECXZ pfx ofs
+
         0xe8 -> jmpcall I_CALL pfx ofs
         0xe9 -> jmpcall I_JMP pfx ofs
 
@@ -348,10 +357,20 @@ disassemble1' pfx ofs = do
                         64 -> fromIntegral <$> getInt64le
                 eip <- ((ofs+).fromIntegral <$> bytesRead)
                 let iv = bits 0 64 (eip + disp)
-                    imm = Immediate opWidth iv
+                    imm = Immediate 64 iv
                     ep = (if (pfxA32 pfx) then [PrefixA32] else []) ++
                            (maybe [] (:[]) (pfxRep pfx))
                   in return (Instruction ep i [Op_Imm imm])
+    jshort i pfx ofs = let
+             in do
+                disp <- fromIntegral <$> getInt8
+                eip <- ((ofs+).fromIntegral <$> bytesRead)
+                let iv = bits 0 64 (eip + disp)
+                    imm = Immediate 64 iv
+                    ep = (if (pfxA32 pfx) then [PrefixA32] else []) ++
+                           (maybe [] (:[]) (pfxRep pfx))
+                  in return (Instruction ep i [Op_Imm imm])
+
 
 parseSib rex sib = let
                      br = bits 0 3 sib
@@ -401,6 +420,11 @@ opertext I_IN  = "in"
 opertext I_OUT = "out"
 opertext I_CALL = "call"
 opertext I_JMP = "jmp"
+opertext I_LOOPNZ = "loopnz"
+opertext I_LOOPZ = "loopz"
+opertext I_LOOP = "loop"
+opertext I_JECXZ = "jecxz"
+
 
 --
 
