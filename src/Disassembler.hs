@@ -81,6 +81,9 @@ data Operation =
       | I_WAIT
       | I_PUSH
       | I_POP
+      | I_CWD
+      | I_CDQ
+      | I_CQO
     deriving (Show, Eq)
 
 data Operand =
@@ -259,7 +262,7 @@ disassemble1' pfx ofs = do
         0x23 -> op2 I_AND pfx opWidth bitD
         0x24 -> opImm I_AND pfx opWidth
         0x25 -> opImm I_AND pfx opWidth
--- TODO: 0x26
+        0x26 -> disassemble1' (pfx { pfxSeg = Just ES }) ofs
         0x27 -> fail "invalid"
         0x28 -> op2 I_SUB pfx opWidth bitD
         0x29 -> op2 I_SUB pfx opWidth bitD
@@ -324,6 +327,9 @@ disassemble1' pfx ofs = do
         0x66 -> disassemble1' (pfx { pfxO16 = True }) ofs
         0x67 -> disassemble1' (pfx { pfxA32 = True }) ofs
 
+        0x99 -> let i = case opWidth' of 64 -> I_CQO; 32 -> I_CDQ; 16 -> I_CWD
+                  in simple i pfx []
+
         0x9b -> simple I_WAIT pfx []
 
         0xdf -> fpuDF pfx ofs
@@ -361,7 +367,7 @@ disassemble1' pfx ofs = do
 
 emitPfx noo16 noa32 pfx =
     (if (not noo16) && pfxO16 pfx then [PrefixO16] else []) ++
-    (if (not noa32) && pfxO16 pfx then [PrefixA32] else []) ++
+    (if (not noa32) && pfxA32 pfx then [PrefixA32] else []) ++
     (if pfxLock pfx then [PrefixLock] else []) ++
     (maybe [] (:[]) (pfxRep pfx))
 
@@ -542,7 +548,9 @@ opertext I_FBSTP = "fbstp"
 opertext I_WAIT = "wait"
 opertext I_PUSH = "push"
 opertext I_POP = "pop"
-
+opertext I_CWD = "cwd"
+opertext I_CDQ = "cdq"
+opertext I_CQO = "cqo"
 
 --
 
