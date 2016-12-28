@@ -227,7 +227,7 @@ disassemble1' pfx ofs = do
         0x01 -> op2 I_ADD pfx opWidth bitD
         0x02 -> op2 I_ADD pfx opWidth bitD
         0x03 -> op2 I_ADD pfx opWidth bitD
-        0x04 -> opImm I_ADD pfx opWidth
+        0x04 -> opImm I_ADD pfx 8
         0x05 -> opImm I_ADD pfx opWidth
         0x06 -> fail "invalid"
         0x07 -> fail "invalid"
@@ -235,7 +235,7 @@ disassemble1' pfx ofs = do
         0x09 -> op2 I_OR pfx opWidth bitD
         0x0a -> op2 I_OR pfx opWidth bitD
         0x0b -> op2 I_OR pfx opWidth bitD
-        0x0c -> opImm I_OR pfx opWidth
+        0x0c -> opImm I_OR pfx 8
         0x0d -> opImm I_OR pfx opWidth
         0x0e -> fail "invalid"
 -- TODO: 0x0f
@@ -244,7 +244,7 @@ disassemble1' pfx ofs = do
         0x11 -> op2 I_ADC pfx opWidth bitD
         0x12 -> op2 I_ADC pfx opWidth bitD
         0x13 -> op2 I_ADC pfx opWidth bitD
-        0x14 -> opImm I_ADC pfx opWidth
+        0x14 -> opImm I_ADC pfx 8
         0x15 -> opImm I_ADC pfx opWidth
         0x16 -> fail "invalid"
         0x17 -> fail "invalid"
@@ -252,7 +252,7 @@ disassemble1' pfx ofs = do
         0x19 -> op2 I_SBB pfx opWidth bitD
         0x1a -> op2 I_SBB pfx opWidth bitD
         0x1b -> op2 I_SBB pfx opWidth bitD
-        0x1c -> opImm I_SBB pfx opWidth
+        0x1c -> opImm I_SBB pfx 8
         0x1d -> opImm I_SBB pfx opWidth
         0x1e -> fail "invalid"
         0x1f -> fail "invalid"
@@ -261,7 +261,7 @@ disassemble1' pfx ofs = do
         0x21 -> op2 I_AND pfx opWidth bitD
         0x22 -> op2 I_AND pfx opWidth bitD
         0x23 -> op2 I_AND pfx opWidth bitD
-        0x24 -> opImm I_AND pfx opWidth
+        0x24 -> opImm I_AND pfx 8
         0x25 -> opImm I_AND pfx opWidth
         0x26 -> disassemble1' (pfx { pfxSeg = Just ES }) ofs
         0x27 -> fail "invalid"
@@ -269,7 +269,7 @@ disassemble1' pfx ofs = do
         0x29 -> op2 I_SUB pfx opWidth bitD
         0x2a -> op2 I_SUB pfx opWidth bitD
         0x2b -> op2 I_SUB pfx opWidth bitD
-        0x2c -> opImm I_SUB pfx opWidth
+        0x2c -> opImm I_SUB pfx 8
         0x2d -> opImm I_SUB pfx opWidth
         0x2e -> disassemble1' (pfx { pfxSeg = Just CS }) ofs
         0x2f -> fail "invalid"
@@ -278,7 +278,7 @@ disassemble1' pfx ofs = do
         0x31 -> op2 I_XOR pfx opWidth bitD
         0x32 -> op2 I_XOR pfx opWidth bitD
         0x33 -> op2 I_XOR pfx opWidth bitD
-        0x34 -> opImm I_XOR pfx opWidth
+        0x34 -> opImm I_XOR pfx 8
         0x35 -> opImm I_XOR pfx opWidth
         0x36 -> disassemble1' (pfx { pfxSeg = Just SS }) ofs
         0x37 -> fail "invalid"
@@ -286,7 +286,7 @@ disassemble1' pfx ofs = do
         0x39 -> op2 I_CMP pfx opWidth bitD
         0x3a -> op2 I_CMP pfx opWidth bitD
         0x3b -> op2 I_CMP pfx opWidth bitD
-        0x3c -> opImm I_CMP pfx opWidth
+        0x3c -> opImm I_CMP pfx 8
         0x3d -> opImm I_CMP pfx opWidth
 -- TODO: 0x3e
         0x3f -> fail "invalid"
