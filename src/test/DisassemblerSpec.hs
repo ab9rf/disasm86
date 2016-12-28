@@ -107,8 +107,9 @@ makeTest' bs = let
         descr = mdHex m
         ref'' = mdAssembly m
         ref' = (if (last ref'' == ' ') then init else id) ref''
-        ref = case ref' of "invalid" -> ""
-                           _         -> ref'
+        last7 = reverse (take 7 (reverse ref'))
+        ref = case last7 of "invalid" -> ""
+                            _         -> ref'
     in Test bytes descr ref
 
 testdis t = intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble 0x1000 (bytes t)))))
