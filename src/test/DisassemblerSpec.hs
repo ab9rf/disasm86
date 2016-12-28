@@ -2,14 +2,15 @@ module DisassemblerSpec (spec)
 where
 
 import Test.Hspec
-import Test.QuickCheck (property)
+import Test.QuickCheck hiding ((.&.))
 
 import qualified Disassembler as D
 import qualified Data.ByteString.Lazy as B
 
 import Data.Word (Word8, Word64)
 import Data.Maybe (catMaybes)
-import Data.List (intercalate)
+import Data.List (intercalate, (\\), union)
+import Data.Bits ((.&.))
 
 import Hdis86
 
@@ -26,39 +27,81 @@ spec = do
             ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0)
                                        , D.Op_Reg (D.Reg8 D.RAX D.HalfL)]]
             , B.empty)
-    describe "text representations" $ do
+    describe "disassembler" $ do
         it "0000" $ D.textrep (D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0)
                                                         , D.Op_Reg (D.Reg8 D.RAX D.HalfL)])
                       `shouldBe` "add [rax], al"
-    describe "instructions" $ do
-        mapM_
-            (\(Test d i o) -> (it d $ (intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble 0x1000 i)))))
-                                    `shouldBe` o))
-            tests
+        it "matches reference" $ property $ \t -> testdis t `shouldBe` refValue t
 
-data Test = Test
-    { description :: String
-    , input :: B.ByteString
-    , output :: String
+allopcodes = let
+        opcodes1 = [ [o] | o <- [0x00 .. 0xFF] \\ prefixes ]
+        opcodes2 = [ [p, o] | p <- tbPfx, o <- [0x00, 0xff] ]
+    in opcodes1 ++ opcodes2
+
+allmodrm :: [ [Word8] ]
+allmodrm = let
+        hassib modrm = (modrm .&. 0x07 == 4 && modrm .&. 0xC0 /= 0xE0)
+        hasdisp modrm = (modrm .&. 0xC7 == 0x5 ||
+                         modrm .&. 0xC0 == 0x40 ||
+                         modrm .&. 0xC0 == 0x80)
+        onemodrm mrm = if hasdisp mrm
+                        then [ m ++ d | m <- mrm', d <- [[0x00,0x00,0x00,0x00], [0x7f, 0x7f, 0x7f, 0x7f], [0xff, 0xff, 0xff, 0xff]] ]
+                        else mrm'
+                where mrm' = if hassib mrm
+                                then [ mrm : s : [] | s <- [0x00..0xff] ]
+                                else [ mrm : [] ]
+    in concatMap onemodrm [0x00..0xff]
+
+(prefixes, allprefix, tbPfx) = let
+        prefixes = foldr1 union [ insPfx, adPfx, opPfx, sgPfx, rexPfx, tbPfx ]
+        allprefix = [ i ++ a ++ o ++ s ++ r | i <- wrap insPfx,
+                                                       a <- wrap adPfx,
+                                                       o <- wrap opPfx,
+                                                       s <- wrap sgPfx,
+                                                       r <- wrap rexPfx ]
+        wrap l = [] : map (:[]) l
+        tbPfx = [ 0x0f ]
+        rexPfx = [ 0x40..0x4f ]
+        insPfx = [ 0xf0, 0xf2, 0xf3, 0x9b]
+        adPfx = [ 0x67 ]
+        opPfx = [ 0x66 ]
+        sgPfx = [ 0x26, 0x2e, 0x36, 0x3e, 0x66, 0x67 ]
+    in (prefixes, allprefix, tbPfx)
+
+data TPrefix = TPrefix [ Word8 ]
+    deriving (Show, Eq)
+data TOpcode = TOpcode [ Word8 ]
+    deriving (Show, Eq)
+data TSuffix = TSuffix [ Word8 ]
+    deriving (Show, Eq)
+data TPad = TPad ( Word8 )
+    deriving (Show, Eq)
+
+data Test = Test {
+      bytes     :: B.ByteString
+    , descr     :: String
+    , refValue  :: String
     }
+    deriving (Eq)
 
-tests = let
-           input = [ B.pack (pfx1 ++ pfx2 ++ (x : replicate 15 sfx))
-                        | x <- [0x00 .. 0xFF]
-                        , sfx <- [0x00 .. 0xFF]
-                        , pfx1 <- [ [], [0x66], [0x67] ]
-                        , pfx2 <- [[]] ++ [ [r] | r <- [0x40..0x4f] ]
-                        ]
-           cfg = Config Intel Mode64 SyntaxIntel (0x1000 :: Word64)
-           one bs = let m = head (disassembleMetadata cfg (B.toStrict bs))
-                        s'' = mdAssembly m
-                        s' = (if (last s'' == ' ') then init else id) s''
-                        s = case s' of "invalid" -> ""
-                                       _         -> s'
-                    in Test (mdHex m) bs s
-           all = map one input
-           cnt = length all
-           rg = mkStdGen 0
-           rands = map (<100) $ randomRs (0, cnt-1) rg
-           all' = zipWith (\i b -> if i then Just b else Nothing) rands all
-        in (Test "0000" (B.pack [0,0]) "add [rax], al") : (catMaybes all')
+instance Show Test where show (Test _ d r) = d ++ " -> " ++ r
+
+instance Arbitrary TPrefix where arbitrary = TPrefix <$> elements (allprefix)
+instance Arbitrary TOpcode where arbitrary = TOpcode <$> elements (allopcodes)
+instance Arbitrary TSuffix where arbitrary = TSuffix <$> elements (allmodrm)
+instance Arbitrary TPad    where arbitrary = TPad <$> elements [0x00..0xff]
+instance Arbitrary Test    where arbitrary = makeTest <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+
+makeTest (TPrefix p) (TOpcode o) (TSuffix r) (TPad pad) = let
+        bytes = B.pack (p ++ o ++ r ++ (replicate 15 pad))
+        cfg = Config Intel Mode64 SyntaxIntel (0x1000 :: Word64)
+        m = head (disassembleMetadata cfg (B.toStrict bytes))
+        descr = mdHex m
+        ref'' = mdAssembly m
+        ref' = (if (last ref'' == ' ') then init else id) ref''
+        ref = case ref' of "invalid" -> ""
+                           _         -> ref'
+    in Test bytes descr ref
+
+testdis t = intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble 0x1000 (bytes t)))))
+
