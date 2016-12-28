@@ -114,6 +114,8 @@ data Operation =
       | I_SHR
       | I_SAL
       | I_SAR
+      | I_NOP
+      | I_XCHG
     deriving (Show, Eq)
 
 data Operand =
@@ -245,11 +247,11 @@ disassemble1' pfx ofs = do
         opWidth = o' bitW (fmap (\x -> (x .&. (bit 3)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
             where
                 o' _ (Just True)  _       = 64
-                o' 0 _ _                  = 8
                 o' 1 Nothing      False   = 32
-                o' 1 Nothing      True    = 16
+                o' _ Nothing      True    = 16
                 o' 1 (Just False) False   = 32
-                o' 1 (Just False) True    = 16
+                o' _ (Just False) True    = 16
+                o' 0 _ _                  = 8
         opWidth' = o' (fmap (\x -> (x .&. (bit 3)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
             where
                 o' (Just True)  _       = 64
@@ -363,6 +365,15 @@ disassemble1' pfx ofs = do
         0x66 -> disassemble1' (pfx { pfxO16 = True }) ofs
         0x67 -> disassemble1' (pfx { pfxA32 = True }) ofs
 
+        0x90 -> simple I_NOP pfx []
+        0x91 -> xchg (bits 0 3 opcode) opWidth' pfx
+        0x92 -> xchg (bits 0 3 opcode) opWidth' pfx
+        0x93 -> xchg (bits 0 3 opcode) opWidth' pfx
+        0x94 -> xchg (bits 0 3 opcode) opWidth' pfx
+        0x95 -> xchg (bits 0 3 opcode) opWidth' pfx
+        0x96 -> xchg (bits 0 3 opcode) opWidth' pfx
+        0x97 -> xchg (bits 0 3 opcode) opWidth' pfx
+
         0x99 -> let i = case opWidth' of 64 -> I_CQO; 32 -> I_CDQ; 16 -> I_CWD
                   in simple i pfx []
 
@@ -432,6 +443,12 @@ grp50 i r opWidth pfx = let
         reg = selectreg 0 r opWidth (pfxRex pfx)
         ep = emitPfx True False pfx
     in return (Instruction ep i [Op_Reg reg])
+
+xchg r opWidth pfx = let
+        reg1 = selectreg 0 r opWidth (pfxRex pfx)
+        reg2 = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
+        ep = emitPfx True False pfx
+    in return (Instruction ep I_XCHG [Op_Reg reg1, Op_Reg reg2])
 
 op2 i pfx opWidth direction = do
     (rm, reg, _, _, _) <- modrm pfx opWidth
@@ -668,6 +685,8 @@ opertext I_SHL = "shl"
 opertext I_SHR = "shr"
 opertext I_SAL = "sal"
 opertext I_SAR = "sar"
+opertext I_NOP = "nop"
+opertext I_XCHG = "xchg"
 
 --
 
