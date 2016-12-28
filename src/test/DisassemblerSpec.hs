@@ -27,11 +27,12 @@ spec = do
             ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0) Nothing
                                        , D.Op_Reg (D.Reg8 D.RAX D.HalfL)]]
             , B.empty)
-    describe "disassembler" $ do
-        mapM
+    describe "static disassembly tests" $ do
+        mapM_
             (\bs -> let t = makeTest' bs
                          in it (show t) $ testdis t `shouldBe` refValue t)
             statictests
+    describe "quickcheck tests" $ do
         it "matches reference" $ property $ \t -> testdis t `shouldBe` refValue t
 
 toBS :: String -> [Word8]
