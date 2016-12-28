@@ -306,13 +306,16 @@ disassemble1' pfx ofs = do
                 o' 1 Nothing      False   = 32
                 o' 1 (Just False) False   = 32
                 o' _ (Just True)  _       = 64
-        opWidthA = o' bitW (fmap (\x -> (x .&. (bit 3)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
+--         opWidthA = o' (fmap (\x -> (x .&. (bit 3)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
+--             where
+--                 o' (Just True)  _       = 64
+--                 o' _            True    = 16
+--                 o' Nothing      False   = 32
+--                 o' (Just False) False   = 32
+        opWidthA = o' (fmap (\x -> (x .&. (bit 3)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
             where
-                o' _ _            True    = 16
-                o' 1 Nothing      False   = 32
-                o' 1 (Just False) False   = 32
-                o' _ (Just True)  _       = 64
-                o' 0 _ _                  = 64
+                o' _            False   = 64
+                o' _            True    = 16
         opWidth' = o' (fmap (\x -> (x .&. (bit 3)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
             where
                 o' (Just True)  _       = 64
