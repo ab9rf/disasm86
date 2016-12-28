@@ -127,6 +127,7 @@ statictests = map toBS [
     , "f02643c84c5100"
     , "3e410cac"
     , "f067666548c02cb0ac"
+    , "f067663e4da5"
     ]
 
 

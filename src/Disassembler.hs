@@ -36,6 +36,7 @@ data Prefix =
     | PrefixRepNE
     | PrefixRep
     | PrefixLock
+    | PrefixSeg SReg
     deriving (Show, Eq)
 
 data Operation =
@@ -84,7 +85,26 @@ data Operation =
       | I_CWD
       | I_CDQ
       | I_CQO
+      | I_MOVSB
+      | I_MOVSQ
+      | I_MOVSD
+      | I_MOVSW
+      | I_CMPSB
+      | I_CMPSQ
+      | I_CMPSD
+      | I_CMPSW
       | I_STOSB
+      | I_STOSQ
+      | I_STOSD
+      | I_STOSW
+      | I_LODSB
+      | I_LODSQ
+      | I_LODSD
+      | I_LODSW
+      | I_SCASB
+      | I_SCASQ
+      | I_SCASD
+      | I_SCASW
       | I_ENTER
       | I_ROL
       | I_ROR
@@ -143,17 +163,17 @@ textrep :: Instruction -> String
 textrep (Instruction p oper operands) =
     let t1 = tp ++ (opertext oper)
         t2 = intercalate ", " (map ot operands)
-        tp = concat (map prefixtext p)
+        tp = concat (map ((++" ").prefixtext) p)
         ot = if (isAmbiguousSize oper) then operandtext' else operandtext
       in case t2 of "" -> t1
                     _  -> t1 ++ " " ++ t2
 
-prefixtext PrefixA32 = "a32 "
-prefixtext PrefixO16 = "o16 "
-prefixtext PrefixRepNE = "repne "
-prefixtext PrefixRep = "rep "
-prefixtext PrefixLock = "lock "
-
+prefixtext PrefixA32 = "a32"
+prefixtext PrefixO16 = "o16"
+prefixtext PrefixRepNE = "repne"
+prefixtext PrefixRep = "rep"
+prefixtext PrefixLock = "lock"
+prefixtext (PrefixSeg r) = (registertext.RegSeg) r
 
 operandtext :: Operand -> String
 operandtext (Op_Reg r) = registertext r
@@ -348,7 +368,22 @@ disassemble1' pfx ofs = do
 
         0x9b -> simple I_WAIT pfx []
 
-        0xaa -> simple I_STOSB pfx []
+        0xa4 -> datamov I_MOVSB pfx []
+        0xa5 -> let i = case opWidth' of 64 -> I_MOVSQ; 32 -> I_MOVSD; 16 -> I_MOVSW
+                  in datamov i pfx []
+        0xa6 -> datamov I_CMPSB pfx []
+        0xa7 -> let i = case opWidth' of 64 -> I_CMPSQ; 32 -> I_CMPSD; 16 -> I_CMPSW
+                  in datamov i pfx []
+
+        0xaa -> datamov I_STOSB pfx []
+        0xab -> let i = case opWidth' of 64 -> I_STOSQ; 32 -> I_STOSD; 16 -> I_STOSW
+                    in datamov i pfx []
+        0xac -> datamov I_LODSB pfx []
+        0xad -> let i = case opWidth' of 64 -> I_LODSQ; 32 -> I_LODSD; 16 -> I_LODSW
+                    in datamov i pfx []
+        0xae -> datamov I_SCASB pfx []
+        0xaf -> let i = case opWidth' of 64 -> I_SCASQ; 32 -> I_SCASD; 16 -> I_SCASW
+                    in datamov i pfx []
 
         0xc0 -> shiftrot 8 pfx
 
@@ -463,6 +498,11 @@ opImm i pfx opWidth = do
 
 simple i pfx opl = let
         ep = (emitPfx False False pfx)
+    in return (Instruction ep i opl)
+
+datamov i pfx opl = let
+        ep = (emitPfx True False pfx) ++
+              (maybe [] ((:[]).PrefixSeg) (pfxSeg pfx))
     in return (Instruction ep i opl)
 
 jmpcall i pfx ofs = let
@@ -599,7 +639,26 @@ opertext I_POP = "pop"
 opertext I_CWD = "cwd"
 opertext I_CDQ = "cdq"
 opertext I_CQO = "cqo"
+opertext I_MOVSB = "movsb"
+opertext I_MOVSQ = "movsq"
+opertext I_MOVSD = "movsd"
+opertext I_MOVSW = "movsw"
+opertext I_CMPSB = "cmpsb"
+opertext I_CMPSQ = "cmpsq"
+opertext I_CMPSD = "cmpsd"
+opertext I_CMPSW = "cmpsw"
 opertext I_STOSB = "stosb"
+opertext I_STOSQ = "stosq"
+opertext I_STOSD = "stosd"
+opertext I_STOSW = "stosw"
+opertext I_LODSB = "lodsb"
+opertext I_LODSQ = "lodsq"
+opertext I_LODSD = "lodsd"
+opertext I_LODSW = "lodsw"
+opertext I_SCASB = "scasb"
+opertext I_SCASQ = "scasq"
+opertext I_SCASD = "scasd"
+opertext I_SCASW = "scasw"
 opertext I_ENTER = "enter"
 opertext I_ROL = "rol"
 opertext I_ROR = "ror"
