@@ -121,7 +121,7 @@ data Operation =
       | I_JO
       | I_JNO
       | I_JB
-      | I_JNB
+      | I_JAE
       | I_JZ
       | I_JNZ
       | I_JBE
@@ -159,7 +159,7 @@ data Operation =
       | I_INT
       | I_RETF
       | I_LEAVE
-      | I_RETN
+      | I_RET
       | I_XLAT
       | I_NOT
       | I_NEG
@@ -443,7 +443,7 @@ disassemble1' pfx ofs = do
         0x70 -> jshort I_JO pfx ofs
         0x71 -> jshort I_JNO pfx ofs
         0x72 -> jshort I_JB pfx ofs
-        0x73 -> jshort I_JNB pfx ofs
+        0x73 -> jshort I_JAE pfx ofs
         0x74 -> jshort I_JZ pfx ofs
         0x75 -> jshort I_JNZ pfx ofs
         0x76 -> jshort I_JBE pfx ofs
@@ -538,8 +538,8 @@ disassemble1' pfx ofs = do
         0xc0 -> shiftrot opWidth pfx
         0xc1 -> shiftrot opWidth pfx
         0xc2 -> do  i <- Immediate 16 <$> fromIntegral <$> getWord16le
-                    simple I_RETN pfx [Op_Imm i]
-        0xc3 -> simple I_RETN pfx []
+                    simple I_RET pfx [Op_Imm i]
+        0xc3 -> simple I_RET pfx []
         0xc4 -> fail "invalid"
         0xc5 -> fail "invalid"
         0xc6 -> movimm pfx opWidth
@@ -580,22 +580,18 @@ disassemble1' pfx ofs = do
         0xe1 -> jshort I_LOOPZ pfx ofs
         0xe2 -> jshort I_LOOP pfx ofs
         0xe3 -> jshort I_JECXZ pfx ofs
-        0xe4 -> do op1 <- Immediate 8 <$> fromIntegral <$> getWord8
-                   simple I_IN pfx [Op_Reg (Reg8 RAX HalfL), Op_Imm op1]
-        0xe5 -> do op1 <- Immediate 8 <$> fromIntegral <$> getWord8
-                   simple I_IN pfx [Op_Reg (Reg16 RAX), Op_Imm op1]
-        0xe6 -> do op1 <- Immediate 8 <$> fromIntegral <$> getWord8
-                   simple I_OUT pfx [Op_Imm op1, Op_Reg (Reg8 RAX HalfL)]
-        0xe7 -> do op1 <- Immediate 8 <$> fromIntegral <$> getWord8
-                   simple I_OUT pfx [Op_Imm op1, Op_Reg (Reg16 RAX)]
+        0xe4 -> inout pfx opWidth bitD
+        0xe5 -> inout pfx opWidth bitD
+        0xe6 -> inout pfx opWidth bitD
+        0xe7 -> inout pfx opWidth bitD
         0xe8 -> jmpcall I_CALL pfx ofs
         0xe9 -> jmpcall I_JMP pfx ofs
         0xea -> fail "invalid"
         0xeb -> jshort I_JMP pfx ofs
         0xec -> simple I_IN pfx [Op_Reg (Reg8 RAX HalfL), Op_Reg (Reg16 RDX)]
-        0xed -> simple I_IN pfx [Op_Reg (Reg16 RAX), Op_Reg (Reg16 RDX)]
+        0xed -> simple I_IN pfx [Op_Reg (Reg32 RAX), Op_Reg (Reg16 RDX)]
         0xee -> simple I_OUT pfx [Op_Reg (Reg16 RDX), Op_Reg (Reg8 RAX HalfL)]
-        0xef -> simple I_OUT pfx [Op_Reg (Reg16 RDX), Op_Reg (Reg16 RAX)]
+        0xef -> simple I_OUT pfx [Op_Reg (Reg16 RDX), Op_Reg (Reg32 RAX)]
 
         0xf0 -> disassemble1' (pfx { pfxLock = True }) ofs
         0xf1 -> fail "invalid"
@@ -621,6 +617,16 @@ emitPfx noo16 noa32 pfx =
     (if (not noa32) && pfxA32 pfx then [PrefixA32] else []) ++
     (if pfxLock pfx then [PrefixLock] else []) ++
     (maybe [] (:[]) (pfxRep pfx))
+
+inout pfx opWidth direction = do
+     op1 <- Immediate 8 <$> fromIntegral <$> getWord8
+     let op2 = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
+         (i,ops) = case direction of
+                    0 -> (I_IN, [Op_Reg op2, Op_Imm op1])
+                    _ -> (I_OUT, [Op_Imm op1, Op_Reg op2])
+         ep = emitPfx (opWidth /= 8) False pfx
+       in return (Instruction ep i ops)
+
 
 grpf6 pfx opWidth = do
         (rm, _, op, _, _) <- modrm pfx opWidth
@@ -711,8 +717,8 @@ movreg r pfx opWidth = do
                                                    16 -> fromIntegral <$> getWord16le
                                                    32 -> fromIntegral <$> getWord32le
                                                    64 -> fromIntegral <$> getWord64le
-    let reg = selectreg r 0 opWidth (pfxRex pfx)
-        ep = emitPfx False False pfx
+    let reg = selectreg 0 r opWidth (pfxRex pfx)
+        ep = emitPfx True False pfx
       in return (Instruction ep I_MOV [Op_Reg reg, Op_Imm imm])
 
 testRax pfx opWidth = do
@@ -1002,7 +1008,7 @@ opertext I_MOVSXD = "movsxd"
 opertext I_JO = "jo"
 opertext I_JNO = "jno"
 opertext I_JB = "jb"
-opertext I_JNB = "jnb"
+opertext I_JAE = "jae"
 opertext I_JZ = "jz"
 opertext I_JNZ = "jnz"
 opertext I_JBE = "jbe"
@@ -1040,7 +1046,7 @@ opertext I_INTO = "into"
 opertext I_INT = "int"
 opertext I_RETF = "retf"
 opertext I_LEAVE = "leave"
-opertext I_RETN = "retn"
+opertext I_RET = "ret"
 opertext I_XLAT = "xlat"
 opertext I_NOT = "not"
 opertext I_NEG = "neg"
