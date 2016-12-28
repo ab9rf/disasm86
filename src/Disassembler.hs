@@ -580,18 +580,22 @@ disassemble1' pfx ofs = do
         0xe1 -> jshort I_LOOPZ pfx ofs
         0xe2 -> jshort I_LOOP pfx ofs
         0xe3 -> jshort I_JECXZ pfx ofs
-        0xe4 -> inout pfx opWidth bitD
-        0xe5 -> inout pfx opWidth bitD
-        0xe6 -> inout pfx opWidth bitD
-        0xe7 -> inout pfx opWidth bitD
+        0xe4 -> do op1 <- Op_Imm <$> Immediate 8 <$> fromIntegral <$> getWord8
+                   inout pfx opWidth bitD op1
+        0xe5 -> do op1 <- Op_Imm <$> Immediate 8 <$> fromIntegral <$> getWord8
+                   inout pfx opWidth bitD op1
+        0xe6 -> do op1 <- Op_Imm <$> Immediate 8 <$> fromIntegral <$> getWord8
+                   inout pfx opWidth bitD op1
+        0xe7 -> do op1 <- Op_Imm <$> Immediate 8 <$> fromIntegral <$> getWord8
+                   inout pfx opWidth bitD op1
         0xe8 -> jmpcall I_CALL pfx ofs
         0xe9 -> jmpcall I_JMP pfx ofs
         0xea -> fail "invalid"
         0xeb -> jshort I_JMP pfx ofs
-        0xec -> simple I_IN pfx [Op_Reg (Reg8 RAX HalfL), Op_Reg (Reg16 RDX)]
-        0xed -> simple I_IN pfx [Op_Reg (Reg32 RAX), Op_Reg (Reg16 RDX)]
-        0xee -> simple I_OUT pfx [Op_Reg (Reg16 RDX), Op_Reg (Reg8 RAX HalfL)]
-        0xef -> simple I_OUT pfx [Op_Reg (Reg16 RDX), Op_Reg (Reg32 RAX)]
+        0xec -> inout pfx opWidth bitD (Op_Reg (Reg16 RDX))
+        0xed -> inout pfx opWidth bitD (Op_Reg (Reg16 RDX))
+        0xee -> inout pfx opWidth bitD (Op_Reg (Reg16 RDX))
+        0xef -> inout pfx opWidth bitD (Op_Reg (Reg16 RDX))
 
         0xf0 -> disassemble1' (pfx { pfxLock = True }) ofs
         0xf1 -> fail "invalid"
@@ -618,12 +622,11 @@ emitPfx noo16 noa32 pfx =
     (if pfxLock pfx then [PrefixLock] else []) ++
     (maybe [] (:[]) (pfxRep pfx))
 
-inout pfx opWidth direction = do
-     op1 <- Immediate 8 <$> fromIntegral <$> getWord8
+inout pfx opWidth direction op1 = do
      let op2 = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
          (i,ops) = case direction of
-                    0 -> (I_IN, [Op_Reg op2, Op_Imm op1])
-                    _ -> (I_OUT, [Op_Imm op1, Op_Reg op2])
+                    0 -> (I_IN, [Op_Reg op2, op1])
+                    _ -> (I_OUT, [op1, Op_Reg op2])
          ep = emitPfx (opWidth /= 8) False pfx
        in return (Instruction ep i ops)
 
