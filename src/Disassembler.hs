@@ -86,6 +86,14 @@ data Operation =
       | I_CQO
       | I_STOSB
       | I_ENTER
+      | I_ROL
+      | I_ROR
+      | I_RCL
+      | I_RCR
+      | I_SHL
+      | I_SHR
+      | I_SAL
+      | I_SAR
     deriving (Show, Eq)
 
 data Operand =
@@ -134,8 +142,9 @@ type ImmediateU = Immediate Word64
 textrep :: Instruction -> String
 textrep (Instruction p oper operands) =
     let t1 = tp ++ (opertext oper)
-        t2 = intercalate ", " (map operandtext operands)
+        t2 = intercalate ", " (map ot operands)
         tp = concat (map prefixtext p)
+        ot = if (isAmbiguousSize oper) then operandtext' else operandtext
       in case t2 of "" -> t1
                     _  -> t1 ++ " " ++ t2
 
@@ -148,15 +157,15 @@ prefixtext PrefixLock = "lock "
 
 operandtext :: Operand -> String
 operandtext (Op_Reg r) = registertext r
-operandtext (Op_Mem _ base idx sf ofs seg) =
+operandtext (Op_Mem sz base idx sf ofs seg) =
     let bs = registertext base
         is = case (idx,sf)  of
                     (RegNone,_) -> ""
                     (_,1)       -> (registertext idx)
                     (_,_)       -> ((registertext idx) ++ "*" ++ (show sf))
-        os = case ofs  of Immediate 0 _         -> ""
-                          Immediate _ 0         -> "0x0"
-                          Immediate _ v | v > 0 -> ("0x" ++ (showHex v) "")
+        os = case ofs of Immediate 0 _         -> ""
+                         Immediate _ 0         -> "0x0"
+                         Immediate _ v | v > 0 -> ("0x" ++ (showHex v) "")
                                         | v < 0 -> ("-0x" ++ (showHex (negate v)) "")
         bsis = case (bs,is) of
                     ("",_) -> is
@@ -172,8 +181,11 @@ operandtext (Op_Mem _ base idx sf ofs seg) =
                     (Just sr) -> (registertext (RegSeg sr)) ++ ":"
      in "[" ++ so ++ str ++ "]"
 operandtext (Op_Imm i) = immediatetext i
-
 operandtext o = "!operand "++ (show o) ++ "!"
+
+operandtext' o@(Op_Mem sz _ _ _ _ _) =
+    (case sz of 8 -> "byte"; 16 -> "word"; 32 -> "long"; _ -> (show sz)) ++ " " ++ operandtext o
+operandtext' o = operandtext o
 
 immediatetext (Immediate _ v) = "0x" ++ (showHex v "")
 
@@ -338,6 +350,8 @@ disassemble1' pfx ofs = do
 
         0xaa -> simple I_STOSB pfx []
 
+        0xc0 -> shiftrot 8 pfx
+
         0xc8 -> do  op1 <- fromIntegral <$> getWord16le
                     op2 <- fromIntegral <$> getWord8
                     simple I_ENTER pfx [Op_Imm (Immediate 16 op1), Op_Imm (Immediate 8 op2)]
@@ -373,8 +387,6 @@ disassemble1' pfx ofs = do
 
         _ -> fail ("invalid opcode " ++ show opcode)
 
-
-
 emitPfx noo16 noa32 pfx =
     (if (not noo16) && pfxO16 pfx then [PrefixO16] else []) ++
     (if (not noa32) && pfxA32 pfx then [PrefixA32] else []) ++
@@ -393,6 +405,21 @@ op2 i pfx opWidth direction = do
                     _ -> [Op_Reg reg, rm]
         ep = emitPfx True True pfx
       in return (Instruction ep i ops)
+
+shiftrot opWidth pfx = do
+        (rm, _, op, _, _) <- modrm pfx opWidth
+        imm <- (Immediate 8 . fromIntegral) <$> getWord8
+        let i = case op of
+                    0 -> I_ROL
+                    1 -> I_ROR
+                    2 -> I_RCL
+                    3 -> I_RCR
+                    4 -> I_SHL
+                    5 -> I_SHR
+                    6 -> I_SAL
+                    7 -> I_SAR
+            ep = emitPfx False True pfx
+          in return (Instruction ep i [rm, Op_Imm imm])
 
 modrm pfx opWidth = do
     modrm <- getWord8
@@ -515,6 +542,17 @@ selectreg rexBit reg opWidth rex = let
 
 --
 
+isAmbiguousSize :: Operation -> Bool
+isAmbiguousSize I_ROL = True
+isAmbiguousSize I_ROR = True
+isAmbiguousSize I_RCL = True
+isAmbiguousSize I_RCR = True
+isAmbiguousSize I_SHL = True
+isAmbiguousSize I_SHR = True
+isAmbiguousSize I_SAL = True
+isAmbiguousSize I_SAR = True
+isAmbiguousSize _     = False
+
 opertext :: Operation -> String
 opertext I_ADD = "add"
 opertext I_OR  = "or"
@@ -563,6 +601,14 @@ opertext I_CDQ = "cdq"
 opertext I_CQO = "cqo"
 opertext I_STOSB = "stosb"
 opertext I_ENTER = "enter"
+opertext I_ROL = "rol"
+opertext I_ROR = "ror"
+opertext I_RCL = "rcl"
+opertext I_RCR = "rcr"
+opertext I_SHL = "shl"
+opertext I_SHR = "shr"
+opertext I_SAL = "sal"
+opertext I_SAR = "sar"
 
 --
 
