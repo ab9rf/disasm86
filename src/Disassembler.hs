@@ -325,6 +325,8 @@ disassemble1' pfx ofs = do
         0x5e -> grp50 I_POP (bits 0 3 opcode) opWidth pfx
         0x5f -> grp50 I_POP (bits 0 3 opcode) opWidth pfx
 
+        0x64 -> disassemble1' (pfx { pfxSeg = Just FS }) ofs
+        0x65 -> disassemble1' (pfx { pfxSeg = Just GS }) ofs
         0x66 -> disassemble1' (pfx { pfxO16 = True }) ofs
         0x67 -> disassemble1' (pfx { pfxA32 = True }) ofs
 
@@ -485,7 +487,7 @@ parseSib rex aw sib = let
                      ss = bits 6 2 sib
                      breg = selectreg 0 br aw rex
                      ireg = selectreg 1 ir aw rex
-                     sf = case ss of { 0 -> 1; 1 -> 2; 2 -> 4; 4 -> 8 }
+                     sf = case ss of { 0 -> 1; 1 -> 2; 2 -> 4; 3 -> 8 }
                     in (breg, ireg, sf)
 
 selectreg rexBit reg opWidth rex = let
