@@ -152,6 +152,24 @@ data Operation =
       | I_CDQE
       | I_LAHF
       | I_SAHF
+      | I_IRETQ
+      | I_IRETD
+      | I_IRETW
+      | I_INTO
+      | I_INT
+      | I_RETF
+      | I_LEAVE
+      | I_RETN
+      | I_XLAT
+      | I_NOT
+      | I_NEG
+      | I_MUL
+      | I_IDIV
+      | I_DIV
+      | I_INC
+      | I_DEC
+      | I_CALLF
+      | I_JMPF
     deriving (Show, Eq)
 
 data Operand =
@@ -488,7 +506,8 @@ disassemble1' pfx ofs = do
         0xa6 -> datamov I_CMPSB pfx []
         0xa7 -> let i = case opWidth' of 64 -> I_CMPSQ; 32 -> I_CMPSD; 16 -> I_CMPSW
                   in datamov i pfx []
-
+        0xa8 -> testRax pfx opWidth
+        0xa9 -> testRax pfx opWidth
         0xaa -> datamov I_STOSB pfx []
         0xab -> let i = case opWidth' of 64 -> I_STOSQ; 32 -> I_STOSD; 16 -> I_STOSW
                     in datamov i pfx []
@@ -499,40 +518,100 @@ disassemble1' pfx ofs = do
         0xaf -> let i = case opWidth' of 64 -> I_SCASQ; 32 -> I_SCASD; 16 -> I_SCASW
                     in datamov i pfx []
 
-        0xc0 -> shiftrot 8 pfx
+        0xb0 -> movreg (bits 0 3 opcode) pfx 8
+        0xb1 -> movreg (bits 0 3 opcode) pfx 8
+        0xb2 -> movreg (bits 0 3 opcode) pfx 8
+        0xb3 -> movreg (bits 0 3 opcode) pfx 8
+        0xb4 -> movreg (bits 0 3 opcode) pfx 8
+        0xb5 -> movreg (bits 0 3 opcode) pfx 8
+        0xb6 -> movreg (bits 0 3 opcode) pfx 8
+        0xb7 -> movreg (bits 0 3 opcode) pfx 8
+        0xb8 -> movreg (bits 0 3 opcode) pfx opWidth'
+        0xb9 -> movreg (bits 0 3 opcode) pfx opWidth'
+        0xba -> movreg (bits 0 3 opcode) pfx opWidth'
+        0xbb -> movreg (bits 0 3 opcode) pfx opWidth'
+        0xbc -> movreg (bits 0 3 opcode) pfx opWidth'
+        0xbd -> movreg (bits 0 3 opcode) pfx opWidth'
+        0xbe -> movreg (bits 0 3 opcode) pfx opWidth'
+        0xbf -> movreg (bits 0 3 opcode) pfx opWidth'
 
+        0xc0 -> shiftrot opWidth pfx
+        0xc1 -> shiftrot opWidth pfx
+        0xc2 -> do  i <- Immediate 16 <$> fromIntegral <$> getWord16le
+                    simple I_RETN pfx [Op_Imm i]
+        0xc3 -> simple I_RETN pfx []
+        0xc4 -> fail "invalid"
+        0xc5 -> fail "invalid"
+        0xc6 -> movimm pfx opWidth
+        0xc7 -> movimm pfx opWidth
         0xc8 -> do  op1 <- fromIntegral <$> getWord16le
                     op2 <- fromIntegral <$> getWord8
                     simple I_ENTER pfx [Op_Imm (Immediate 16 op1), Op_Imm (Immediate 8 op2)]
+        0xc9 -> simple I_LEAVE pfx []
+        0xca -> do op1 <- fromIntegral <$> getWord16le
+                   simple I_RETF pfx [Op_Imm (Immediate 16 op1)]
+        0xcb -> simple I_RETF pfx []
+        0xcc -> simple I_INT pfx [Op_Imm (Immediate 8 3)]
+        0xcd -> do op1 <- fromIntegral <$> getWord8
+                   simple I_INT pfx [Op_Imm (Immediate 8 op1)]
+        0xce -> simple I_INTO pfx []
+        0xcf -> let i = case opWidth' of 64 -> I_IRETQ; 32 -> I_IRETD; 16 -> I_IRETW
+                                  in simple i pfx []
 
+        0xd0 -> shiftrot1 opWidth pfx (Op_Imm (Immediate 8 1))
+        0xd1 -> shiftrot1 opWidth pfx (Op_Imm (Immediate 8 1))
+        0xd2 -> shiftrot1 opWidth pfx (Op_Reg (Reg8 RCX HalfL))
+        0xd3 -> shiftrot1 opWidth pfx (Op_Reg (Reg8 RCX HalfL))
+        0xd4 -> fail "invalid"
+        0xd5 -> fail "invalid"
+        0xd6 -> fail "invalid"
+        0xd7 -> simple I_XLAT pfx []
+-- 0xd8
+-- 0xd9
+-- 0xda
+-- 0xdb
+-- 0xdc
+-- 0xdd
+-- 0xee
         0xdf -> fpuDF pfx ofs
 
         0xe0 -> jshort I_LOOPNZ pfx ofs
         0xe1 -> jshort I_LOOPZ pfx ofs
         0xe2 -> jshort I_LOOP pfx ofs
         0xe3 -> jshort I_JECXZ pfx ofs
-
+        0xe4 -> do op1 <- Immediate 8 <$> fromIntegral <$> getWord8
+                   simple I_IN pfx [Op_Reg (Reg8 RAX HalfL), Op_Imm op1]
+        0xe5 -> do op1 <- Immediate 8 <$> fromIntegral <$> getWord8
+                   simple I_IN pfx [Op_Reg (Reg16 RAX), Op_Imm op1]
+        0xe6 -> do op1 <- Immediate 8 <$> fromIntegral <$> getWord8
+                   simple I_OUT pfx [Op_Imm op1, Op_Reg (Reg8 RAX HalfL)]
+        0xe7 -> do op1 <- Immediate 8 <$> fromIntegral <$> getWord8
+                   simple I_OUT pfx [Op_Imm op1, Op_Reg (Reg16 RAX)]
         0xe8 -> jmpcall I_CALL pfx ofs
         0xe9 -> jmpcall I_JMP pfx ofs
-
+        0xea -> fail "invalid"
+        0xeb -> jshort I_JMP pfx ofs
         0xec -> simple I_IN pfx [Op_Reg (Reg8 RAX HalfL), Op_Reg (Reg16 RDX)]
-
+        0xed -> simple I_IN pfx [Op_Reg (Reg16 RAX), Op_Reg (Reg16 RDX)]
         0xee -> simple I_OUT pfx [Op_Reg (Reg16 RDX), Op_Reg (Reg8 RAX HalfL)]
+        0xef -> simple I_OUT pfx [Op_Reg (Reg16 RDX), Op_Reg (Reg16 RAX)]
 
         0xf0 -> disassemble1' (pfx { pfxLock = True }) ofs
+        0xf1 -> fail "invalid"
         0xf2 -> disassemble1' (pfx { pfxRep = Just PrefixRepNE }) ofs
         0xf3 -> disassemble1' (pfx { pfxRep = Just PrefixRep }) ofs
-
         0xf4 -> simple I_HLT pfx []
         0xf5 -> simple I_CMC pfx []
--- TODO: 0xf6
--- TODO: 0xf7
+        0xf6 -> grpf6 pfx opWidth
+        0xf7 -> grpf6 pfx opWidth
         0xf8 -> simple I_CLC pfx []
         0xf9 -> simple I_STC pfx []
         0xfa -> simple I_CLI pfx []
         0xfb -> simple I_STI pfx []
         0xfc -> simple I_CLD pfx []
         0xfd -> simple I_STD pfx []
+        0xfe -> grpfe pfx opWidth
+        0xff -> grpfe pfx opWidth
 
         _ -> fail ("invalid opcode " ++ show opcode)
 
@@ -541,6 +620,38 @@ emitPfx noo16 noa32 pfx =
     (if (not noa32) && pfxA32 pfx then [PrefixA32] else []) ++
     (if pfxLock pfx then [PrefixLock] else []) ++
     (maybe [] (:[]) (pfxRep pfx))
+
+grpf6 pfx opWidth = do
+        (rm, _, op, _, _) <- modrm pfx opWidth
+        let ep = emitPfx False True pfx
+            in case op of
+                0 -> f6test ep rm
+                1 -> f6test ep rm
+                2 -> return (Instruction ep I_NOT [rm])
+                3 -> return (Instruction ep I_NEG [rm])
+                4 -> return (Instruction ep I_MUL [rm])
+                5 -> return (Instruction ep I_IMUL [rm])
+                6 -> return (Instruction ep I_DIV [rm])
+                7 -> return (Instruction ep I_IDIV [rm])
+    where f6test ep rm = do imm <- (Immediate opWidth) <$> case opWidth of
+                                       8  -> fromIntegral <$> getWord8
+                                       16 -> fromIntegral <$> getWord16le
+                                       32 -> fromIntegral <$> getWord32le
+                                       64 -> fromIntegral <$> getWord64le
+                            return (Instruction ep I_TEST [rm, Op_Imm imm])
+
+grpfe pfx opWidth = do
+        (rm, _, op, _, _) <- modrm pfx opWidth
+        let ep = emitPfx False True pfx
+            in case op of
+                0 -> return (Instruction ep I_INC [rm])
+                1 -> return (Instruction ep I_DEC [rm])
+                2 -> return (Instruction ep I_CALL [rm])
+                3 -> return (Instruction ep I_CALLF [rm])
+                4 -> return (Instruction ep I_JMP [rm])
+                5 -> return (Instruction ep I_JMPF [rm])
+                6 -> return (Instruction ep I_PUSH [rm])
+                7 -> fail "invalid"
 
 grp50 i r opWidth pfx = let
         reg = selectreg 0 r opWidth (pfxRex pfx)
@@ -565,6 +676,15 @@ grp80 pfx opWidth immSize = do
             ep = emitPfx False True pfx
           in return (Instruction ep i [rm, Op_Imm imm])
 
+movimm pfx opWidth = do
+        (rm, _, _, _, _) <- modrm pfx opWidth
+        imm <- (Immediate opWidth) <$> case opWidth of 8  -> fromIntegral <$> getWord8
+                                                       16 -> fromIntegral <$> getWord16le
+                                                       32 -> fromIntegral <$> getWord32le
+                                                       64 -> fromIntegral <$> getWord64le
+        let ep = emitPfx False True pfx
+          in return (Instruction ep I_MOV [rm, Op_Imm imm])
+
 movsr pfx opWidth direction = do
     (rm, _, sr, _, _) <- modrm pfx opWidth
     let sreg = RegSeg ( [ES, CS, SS, DS, FS, GS, SR6, SR7] !! sr )
@@ -584,6 +704,24 @@ xchg r opWidth pfx = let
         reg2 = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
         ep = emitPfx True False pfx
     in return (Instruction ep I_XCHG [Op_Reg reg1, Op_Reg reg2])
+
+movreg r pfx opWidth = do
+    imm <- (Immediate opWidth) <$> case opWidth of 8  -> fromIntegral <$> getWord8
+                                                   16 -> fromIntegral <$> getWord16le
+                                                   32 -> fromIntegral <$> getWord32le
+                                                   64 -> fromIntegral <$> getWord64le
+    let reg = selectreg r 0 opWidth (pfxRex pfx)
+        ep = emitPfx False False pfx
+      in return (Instruction ep I_MOV [Op_Reg reg, Op_Imm imm])
+
+testRax pfx opWidth = do
+    imm <- (Immediate opWidth) <$> case opWidth of 8  -> fromIntegral <$> getWord8
+                                                   16 -> fromIntegral <$> getWord16le
+                                                   32 -> fromIntegral <$> getWord32le
+                                                   64 -> fromIntegral <$> getWord64le
+    let reg = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
+        ep = emitPfx False False pfx
+      in return (Instruction ep I_TEST [Op_Reg reg, Op_Imm imm])
 
 op2 i pfx opWidth direction = do
     (rm, reg, _, _, _) <- modrm pfx opWidth
@@ -623,6 +761,13 @@ imul3 pfx opWidth immSize = do
 shiftrot opWidth pfx = do
         (rm, _, op, _, _) <- modrm pfx opWidth
         imm <- (Immediate 8 . fromIntegral) <$> getWord8
+        shiftrot' pfx op rm (Op_Imm imm)
+
+shiftrot1 opWidth pfx op2 = do
+        (rm, _, op, _, _) <- modrm pfx opWidth
+        shiftrot' pfx op rm op2
+
+shiftrot' pfx op rm op2 =
         let i = case op of
                     0 -> I_ROL
                     1 -> I_ROR
@@ -633,7 +778,7 @@ shiftrot opWidth pfx = do
                     6 -> I_SAL
                     7 -> I_SAR
             ep = emitPfx False True pfx
-          in return (Instruction ep i [rm, Op_Imm imm])
+          in return (Instruction ep i [rm, op2])
 
 modrm pfx opWidth = do
     modrm <- getWord8
@@ -887,6 +1032,24 @@ opertext I_CWDE = "cwde"
 opertext I_CDQE = "cdqe"
 opertext I_LAHF = "lahf"
 opertext I_SAHF = "sahf"
+opertext I_IRETW = "iretw"
+opertext I_IRETD = "iretd"
+opertext I_IRETQ = "iretq"
+opertext I_INTO = "into"
+opertext I_INT = "int"
+opertext I_RETF = "retf"
+opertext I_LEAVE = "leave"
+opertext I_RETN = "retn"
+opertext I_XLAT = "xlat"
+opertext I_NOT = "not"
+opertext I_NEG = "neg"
+opertext I_IDIV = "idiv"
+opertext I_DIV = "div"
+opertext I_INC = "inc"
+opertext I_DEC = "dec"
+opertext I_CALLF = "callf"
+opertext I_JMPF = "jmpf"
+
 
 --
 
