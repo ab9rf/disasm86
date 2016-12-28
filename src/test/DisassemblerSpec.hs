@@ -116,6 +116,7 @@ testdis t = intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble 0x1000 (
 
 statictests = map toBS [
       "0000"
+    , "9B"
     ]
 
 

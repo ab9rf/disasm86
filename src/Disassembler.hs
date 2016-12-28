@@ -77,6 +77,7 @@ data Operation =
       | I_FISTP
       | I_FBLD
       | I_FBSTP
+      | I_WAIT
     deriving (Show, Eq)
 
 data Operand =
@@ -289,6 +290,8 @@ disassemble1' pfx ofs = do
         0x66 -> disassemble1' (pfx { pfxO16 = True }) ofs
         0x67 -> disassemble1' (pfx { pfxA32 = True }) ofs
 
+        0x9b -> simple I_WAIT pfx []
+
         0xdf -> fpuDF pfx ofs
 
         0xe0 -> jshort I_LOOPNZ pfx ofs
@@ -498,7 +501,7 @@ opertext I_FIST = "fist"
 opertext I_FISTP = "fistp"
 opertext I_FBLD = "fbld"
 opertext I_FBSTP = "fbstp"
-
+opertext I_WAIT = "wait"
 
 
 --
