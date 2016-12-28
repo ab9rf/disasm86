@@ -289,7 +289,7 @@ disassemble1' pfx ofs = do
         0x3b -> op2 I_CMP pfx opWidth bitD
         0x3c -> opImm I_CMP pfx 8
         0x3d -> opImm I_CMP pfx opWidth
--- TODO: 0x3e
+        0x3e -> disassemble1' (pfx { pfxSeg = Just DS }) ofs
         0x3f -> fail "invalid"
 
         0x40 -> disassemble1' (pfx { pfxRex = Just 0x40 }) ofs
