@@ -23,15 +23,20 @@ spec = do
 
     describe "basic disassembly" $ do
 -- 0x0000: add [rax], al
-        it "00" $ D.disassemble 0x1000 (B.pack [0x00, 0x00]) `shouldBe`
+        it "0000" $ D.disassemble 0x1000 (B.pack [0x00, 0x00]) `shouldBe`
             ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0)
                                        , D.Op_Reg (D.Reg8 D.RAX D.HalfL)]]
             , B.empty)
     describe "disassembler" $ do
-        it "0000" $ D.textrep (D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0)
-                                                        , D.Op_Reg (D.Reg8 D.RAX D.HalfL)])
-                      `shouldBe` "add [rax], al"
+        mapM
+            (\bs -> let t = makeTest' bs
+                         in it (show t) $ testdis t `shouldBe` refValue t)
+            statictests
         it "matches reference" $ property $ \t -> testdis t `shouldBe` refValue t
+
+toBS :: String -> [Word8]
+toBS []        = []
+toBS (f1:f2:r) = (read ("0x" ++ [f1,f2])) : toBS r
 
 allopcodes = let
         opcodes1 = [ [o] | o <- [0x00 .. 0xFF] \\ prefixes ]
@@ -92,8 +97,10 @@ instance Arbitrary TSuffix where arbitrary = TSuffix <$> elements (allmodrm)
 instance Arbitrary TPad    where arbitrary = TPad <$> elements [0x00..0xff]
 instance Arbitrary Test    where arbitrary = makeTest <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
 
-makeTest (TPrefix p) (TOpcode o) (TSuffix r) (TPad pad) = let
-        bytes = B.pack (p ++ o ++ r ++ (replicate 15 pad))
+makeTest (TPrefix p) (TOpcode o) (TSuffix r) (TPad pad) = makeTest' (p ++ o ++ r ++ (replicate 15 pad))
+
+makeTest' bs = let
+        bytes = B.pack bs
         cfg = Config Intel Mode64 SyntaxIntel (0x1000 :: Word64)
         m = head (disassembleMetadata cfg (B.toStrict bytes))
         descr = mdHex m
@@ -104,4 +111,11 @@ makeTest (TPrefix p) (TOpcode o) (TSuffix r) (TPad pad) = let
     in Test bytes descr ref
 
 testdis t = intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble 0x1000 (bytes t)))))
+
+----
+
+statictests = map toBS [
+      "0000"
+    ]
+
 
