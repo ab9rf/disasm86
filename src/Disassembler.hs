@@ -85,6 +85,7 @@ data Operation =
       | I_CDQ
       | I_CQO
       | I_STOSB
+      | I_ENTER
     deriving (Show, Eq)
 
 data Operand =
@@ -337,6 +338,10 @@ disassemble1' pfx ofs = do
 
         0xaa -> simple I_STOSB pfx []
 
+        0xc8 -> do  op1 <- fromIntegral <$> getWord16le
+                    op2 <- fromIntegral <$> getWord8
+                    simple I_ENTER pfx [Op_Imm (Immediate 16 op1), Op_Imm (Immediate 8 op2)]
+
         0xdf -> fpuDF pfx ofs
 
         0xe0 -> jshort I_LOOPNZ pfx ofs
@@ -557,6 +562,7 @@ opertext I_CWD = "cwd"
 opertext I_CDQ = "cdq"
 opertext I_CQO = "cqo"
 opertext I_STOSB = "stosb"
+opertext I_ENTER = "enter"
 
 --
 
