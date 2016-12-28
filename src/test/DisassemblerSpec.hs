@@ -24,7 +24,7 @@ spec = do
     describe "basic disassembly" $ do
 -- 0x0000: add [rax], al
         it "0000" $ D.disassemble 0x1000 (B.pack [0x00, 0x00]) `shouldBe`
-            ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0)
+            ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0) Nothing
                                        , D.Op_Reg (D.Reg8 D.RAX D.HalfL)]]
             , B.empty)
     describe "disassembler" $ do
@@ -116,7 +116,8 @@ testdis t = intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble 0x1000 (
 
 statictests = map toBS [
       "0000"
-    , "9B"
+    , "9b"
+    , "f067662e4b29743a00"
     ]
 
 

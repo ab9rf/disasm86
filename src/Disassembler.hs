@@ -35,6 +35,7 @@ data Prefix =
     | PrefixA32
     | PrefixRepNE
     | PrefixRep
+    | PrefixLock
     deriving (Show, Eq)
 
 data Operation =
@@ -87,6 +88,7 @@ data Operand =
               , mIdx   :: Register
               , mScale :: Word8
               , mDisp  :: ImmediateS
+              , mSeg   :: Maybe SReg
               }
       | Op_Reg Register
       | Op_Imm ImmediateU
@@ -134,17 +136,19 @@ prefixtext PrefixA32 = "a32 "
 prefixtext PrefixO16 = "o16 "
 prefixtext PrefixRepNE = "repne "
 prefixtext PrefixRep = "rep "
+prefixtext PrefixLock = "lock "
 
 
 operandtext :: Operand -> String
 operandtext (Op_Reg r) = registertext r
-operandtext (Op_Mem _ base idx sf ofs) =
+operandtext (Op_Mem _ base idx sf ofs seg) =
     let bs = registertext base
         is = case (idx,sf)  of
                     (RegNone,_) -> ""
                     (_,1)       -> (registertext idx)
                     (_,_)       -> ((registertext idx) ++ "*" ++ (show sf))
-        os = case ofs  of Immediate _ 0 -> ""
+        os = case ofs  of Immediate 0 _         -> ""
+                          Immediate _ 0         -> "0x0"
                           Immediate _ v | v > 0 -> ("0x" ++ (showHex v) "")
                                         | v < 0 -> ("-0x" ++ (showHex (negate v)) "")
         bsis = case (bs,is) of
@@ -156,7 +160,10 @@ operandtext (Op_Mem _ base idx sf ofs) =
                     (_,"") -> bsis
                     (_,('-':_)) -> bsis ++ os
                     (_,_) -> bsis ++ "+" ++ os
-     in "[" ++ str ++ "]"
+        so = case (seg) of
+                    Nothing -> ""
+                    (Just sr) -> (registertext (RegSeg sr)) ++ ":"
+     in "[" ++ so ++ str ++ "]"
 operandtext (Op_Imm i) = immediatetext i
 
 operandtext o = "!operand "++ (show o) ++ "!"
@@ -172,13 +179,15 @@ disassemble1 :: Word64 -> Get Instruction
 disassemble1 ofs = disassemble1' pfxNone ofs
 
 data PrefixState = PrefixState {
-          pfxRex ::  Maybe Word8
-        , pfxO16 :: Bool
-        , pfxA32 :: Bool
-        , pfxRep :: Maybe Prefix
+          pfxRex  ::  Maybe Word8
+        , pfxO16  :: Bool
+        , pfxA32  :: Bool
+        , pfxRep  :: Maybe Prefix
+        , pfxLock :: Bool
+        , pfxSeg  :: Maybe SReg
     }
 
-pfxNone = PrefixState Nothing False False Nothing
+pfxNone = PrefixState Nothing False False Nothing False Nothing
 
 --
 
@@ -194,13 +203,14 @@ disassemble1' pfx ofs = do
     opcode <- getWord8
     let bitW = (opcode .&. (bit 0))
         bitD = (opcode .&. (bit 1))
-        opWidth = o' bitW (fmap (\x -> (x .&. (bit 4)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
-            where o' 0 _ _                  = 8
-                  o' 1 Nothing      False   = 32
-                  o' 1 Nothing      True    = 16
-                  o' 1 (Just False) False   = 32
-                  o' 1 (Just False) True    = 16
-                  o' 1 (Just True)  _       = 64
+        opWidth = o' bitW (fmap (\x -> (x .&. (bit 3)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
+            where
+                o' _ (Just True)  _       = 64
+                o' 0 _ _                  = 8
+                o' 1 Nothing      False   = 32
+                o' 1 Nothing      True    = 16
+                o' 1 (Just False) False   = 32
+                o' 1 (Just False) True    = 16
       in case opcode of
         0x00 -> op2 I_ADD pfx opWidth bitD
         0x01 -> op2 I_ADD pfx opWidth bitD
@@ -250,7 +260,7 @@ disassemble1' pfx ofs = do
         0x2b -> op2 I_SUB pfx opWidth bitD
         0x2c -> opImm I_SUB pfx opWidth
         0x2d -> opImm I_SUB pfx opWidth
--- TODO: 0x2e
+        0x2e -> disassemble1' (pfx { pfxSeg = Just CS }) ofs
         0x2f -> fail "invalid"
 
         0x30 -> op2 I_XOR pfx opWidth bitD
@@ -306,6 +316,7 @@ disassemble1' pfx ofs = do
 
         0xee -> simple I_OUT pfx [Op_Reg (Reg16 RDX), Op_Reg (Reg8 RAX HalfL)]
 
+        0xf0 -> disassemble1' (pfx { pfxLock = True }) ofs
         0xf2 -> disassemble1' (pfx { pfxRep = Just PrefixRepNE }) ofs
         0xf3 -> disassemble1' (pfx { pfxRep = Just PrefixRep }) ofs
 
@@ -322,13 +333,19 @@ disassemble1' pfx ofs = do
 
         _ -> fail ("invalid opcode " ++ show opcode)
 
+emitPfx noo16 noa32 pfx =
+    (if (not noo16) && pfxO16 pfx then [PrefixO16] else []) ++
+    (if (not noa32) && pfxO16 pfx then [PrefixA32] else []) ++
+    (if pfxLock pfx then [PrefixLock] else []) ++
+    (maybe [] (:[]) (pfxRep pfx))
+
+
 op2 i pfx opWidth direction = do
     (rm, reg, _, _, _) <- modrm pfx opWidth
     let ops = case direction of
                     0 -> [rm, Op_Reg reg]
                     _ -> [Op_Reg reg, rm]
-        ep = (if opWidth == 8 && pfxO16 pfx then [PrefixO16] else []) ++
-             (maybe [] (:[]) (pfxRep pfx))
+        ep = emitPfx True True pfx
       in return (Instruction ep i ops)
 
 modrm pfx opWidth = do
@@ -348,15 +365,16 @@ modrm pfx opWidth = do
             Just 8 -> (Immediate 8 . fromIntegral) <$> getInt8
             Just 32 -> (Immediate 32 . fromIntegral) <$> getInt32le
             _  -> return $ Immediate 0 0
+        so = (pfxSeg pfx)
       in do
-        sib <- if hasSib then (parseSib (pfxRex pfx) <$> getWord8) else return (RegNone,RegNone,0)
+        sib <- if hasSib then (parseSib (pfxRex pfx) aWidth <$> getWord8) else return (RegNone,RegNone,0)
         disp <- getDisp dispSize <|> (return $ Immediate 0 0)
         let rm = case (b'mod, b'rm) of
                 (3,_) -> Op_Reg (selectreg 0 b'rm opWidth (pfxRex pfx))
-                (0,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp
-                (1,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp
-                (2,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp
-                (_,_) -> Op_Mem opWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) RegNone 0 disp
+                (0,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp so
+                (1,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp so
+                (2,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp so
+                (_,_) -> Op_Mem opWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) RegNone 0 disp so
           in return (rm, reg, b'reg, b'mod, b'rm)
 
 opImm i pfx opWidth = do
@@ -367,17 +385,11 @@ opImm i pfx opWidth = do
              8 -> Reg8 RAX HalfL
              32 -> (if bitTest 3 (pfxRex pfx) then Reg64 else Reg32) RAX
         imm = Immediate opWidth iv
-        ep = (if (pfxA32 pfx) then [PrefixA32] else []) ++
-             (maybe [] (:[]) (pfxRep pfx))
+        ep = (emitPfx False False pfx)
       in return (Instruction ep i [Op_Reg reg, Op_Imm imm])
 
 simple i pfx opl = let
-        ep = (case (pfxO16 pfx, pfxA32 pfx) of
-                 (False, False) -> []
-                 (True, False)  -> [PrefixO16]
-                 (False, True)  -> [PrefixA32]
-                 (True, True)   -> [PrefixO16, PrefixA32]) ++
-             (maybe [] (:[]) (pfxRep pfx))
+        ep = (emitPfx False False pfx)
     in return (Instruction ep i opl)
 
 jmpcall i pfx ofs = let
@@ -391,8 +403,7 @@ jmpcall i pfx ofs = let
             eip <- ((ofs+).fromIntegral <$> bytesRead)
             let iv = bits 0 64 (eip + disp)
                 imm = Immediate 64 iv
-                ep = (if (pfxA32 pfx) then [PrefixA32] else []) ++
-                       (maybe [] (:[]) (pfxRep pfx))
+                ep = (emitPfx False False pfx)
               in return (Instruction ep i [Op_Imm imm])
 
 jshort i pfx ofs = do
@@ -400,15 +411,12 @@ jshort i pfx ofs = do
             eip <- ((ofs+).fromIntegral <$> bytesRead)
             let iv = bits 0 64 (eip + disp)
                 imm = Immediate 64 iv
-                ep = (if (pfxA32 pfx) then [PrefixA32] else []) ++
-                       (maybe [] (:[]) (pfxRep pfx))
+                ep = (emitPfx False False pfx)
               in return (Instruction ep i [Op_Imm imm])
 
 fpuDF pfx ofs = do
             (rm, _, op, mod, reg) <- modrm pfx 32
-            let ep = (if pfxO16 pfx then [PrefixO16] else []) ++
-                     (if pfxA32 pfx then [PrefixA32] else []) ++
-                     (maybe [] (:[]) (pfxRep pfx))
+            let ep = (emitPfx False False pfx)
                 fpureg = RegFPU ([ST0, ST1, ST2, ST3, ST4, ST5, ST6, ST7] !! reg)
                in case (op, mod) of
                     (0, 3) -> return (Instruction ep I_FFREEP [Op_Reg fpureg])
@@ -432,12 +440,12 @@ fpuDF pfx ofs = do
                     (6, _) -> return (Instruction ep I_FBSTP [rm])
                     (7, _) -> return (Instruction ep I_FISTP [rm])
 
-parseSib rex sib = let
+parseSib rex aw sib = let
                      br = bits 0 3 sib
                      ir = bits 3 3 sib
                      ss = bits 6 2 sib
-                     breg = selectreg 0 br 64 rex
-                     ireg = selectreg 1 ir 64 rex
+                     breg = selectreg 0 br aw rex
+                     ireg = selectreg 1 ir aw rex
                      sf = case ss of { 0 -> 1; 1 -> 2; 2 -> 4; 4 -> 8 }
                     in (breg, ireg, sf)
 
@@ -590,5 +598,12 @@ registertext (RegFPU ST4) = "st4"
 registertext (RegFPU ST5) = "st5"
 registertext (RegFPU ST6) = "st6"
 registertext (RegFPU ST7) = "st7"
+
+registertext (RegSeg CS) = "cs"
+registertext (RegSeg DS) = "ds"
+registertext (RegSeg ES) = "es"
+registertext (RegSeg SS) = "ss"
+registertext (RegSeg FS) = "fs"
+registertext (RegSeg GS) = "gs"
 
 registertext r = "!reg:" ++ (show r) ++ "!"
