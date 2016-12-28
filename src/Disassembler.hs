@@ -556,7 +556,8 @@ disassemble1' pfx ofs = do
                    simple I_INT pfx [Op_Imm (Immediate 8 op1)]
         0xce -> simple I_INTO pfx []
         0xcf -> let i = case opWidth' of 64 -> I_IRETQ; 32 -> I_IRETD; 16 -> I_IRETW
-                                  in simple i pfx []
+                    ep = (emitPfx True False pfx)
+                  in return (Instruction ep i [])
 
         0xd0 -> shiftrot1 opWidth pfx (Op_Imm (Immediate 8 1))
         0xd1 -> shiftrot1 opWidth pfx (Op_Imm (Immediate 8 1))
