@@ -79,6 +79,8 @@ data Operation =
       | I_FBLD
       | I_FBSTP
       | I_WAIT
+      | I_PUSH
+      | I_POP
     deriving (Show, Eq)
 
 data Operand =
@@ -211,6 +213,11 @@ disassemble1' pfx ofs = do
                 o' 1 Nothing      True    = 16
                 o' 1 (Just False) False   = 32
                 o' 1 (Just False) True    = 16
+        opWidth' = o' (fmap (\x -> (x .&. (bit 3)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
+            where
+                o' (Just True)  _       = 64
+                o' _            False   = 32
+                o' _            True    = 16
       in case opcode of
         0x00 -> op2 I_ADD pfx opWidth bitD
         0x01 -> op2 I_ADD pfx opWidth bitD
@@ -269,7 +276,7 @@ disassemble1' pfx ofs = do
         0x33 -> op2 I_XOR pfx opWidth bitD
         0x34 -> opImm I_XOR pfx opWidth
         0x35 -> opImm I_XOR pfx opWidth
- -- TOODO: 03x6
+        0x36 -> disassemble1' (pfx { pfxSeg = Just SS }) ofs
         0x37 -> fail "invalid"
         0x38 -> op2 I_CMP pfx opWidth bitD
         0x39 -> op2 I_CMP pfx opWidth bitD
@@ -296,6 +303,23 @@ disassemble1' pfx ofs = do
         0x4d -> disassemble1' (pfx { pfxRex = Just 0x4d }) ofs
         0x4e -> disassemble1' (pfx { pfxRex = Just 0x4e }) ofs
         0x4f -> disassemble1' (pfx { pfxRex = Just 0x4f }) ofs
+
+        0x50 -> grp50 I_PUSH (bits 0 3 opcode) opWidth pfx
+        0x51 -> grp50 I_PUSH (bits 0 3 opcode) opWidth pfx
+        0x52 -> grp50 I_PUSH (bits 0 3 opcode) opWidth pfx
+        0x53 -> grp50 I_PUSH (bits 0 3 opcode) opWidth pfx
+        0x54 -> grp50 I_PUSH (bits 0 3 opcode) opWidth pfx
+        0x55 -> grp50 I_PUSH (bits 0 3 opcode) opWidth pfx
+        0x56 -> grp50 I_PUSH (bits 0 3 opcode) opWidth pfx
+        0x57 -> grp50 I_PUSH (bits 0 3 opcode) opWidth pfx
+        0x58 -> grp50 I_POP (bits 0 3 opcode) opWidth pfx
+        0x59 -> grp50 I_POP (bits 0 3 opcode) opWidth pfx
+        0x5a -> grp50 I_POP (bits 0 3 opcode) opWidth pfx
+        0x5b -> grp50 I_POP (bits 0 3 opcode) opWidth pfx
+        0x5c -> grp50 I_POP (bits 0 3 opcode) opWidth pfx
+        0x5d -> grp50 I_POP (bits 0 3 opcode) opWidth pfx
+        0x5e -> grp50 I_POP (bits 0 3 opcode) opWidth pfx
+        0x5f -> grp50 I_POP (bits 0 3 opcode) opWidth pfx
 
         0x66 -> disassemble1' (pfx { pfxO16 = True }) ofs
         0x67 -> disassemble1' (pfx { pfxA32 = True }) ofs
@@ -333,12 +357,18 @@ disassemble1' pfx ofs = do
 
         _ -> fail ("invalid opcode " ++ show opcode)
 
+
+
 emitPfx noo16 noa32 pfx =
     (if (not noo16) && pfxO16 pfx then [PrefixO16] else []) ++
     (if (not noa32) && pfxO16 pfx then [PrefixA32] else []) ++
     (if pfxLock pfx then [PrefixLock] else []) ++
     (maybe [] (:[]) (pfxRep pfx))
 
+grp50 i r opWidth pfx = let
+        reg = selectreg 0 r opWidth (pfxRex pfx)
+        ep = emitPfx True False pfx
+    in return (Instruction ep i [Op_Reg reg])
 
 op2 i pfx opWidth direction = do
     (rm, reg, _, _, _) <- modrm pfx opWidth
@@ -510,6 +540,8 @@ opertext I_FISTP = "fistp"
 opertext I_FBLD = "fbld"
 opertext I_FBSTP = "fbstp"
 opertext I_WAIT = "wait"
+opertext I_PUSH = "push"
+opertext I_POP = "pop"
 
 
 --
