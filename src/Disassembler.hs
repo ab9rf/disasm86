@@ -84,6 +84,7 @@ data Operation =
       | I_CWD
       | I_CDQ
       | I_CQO
+      | I_STOSB
     deriving (Show, Eq)
 
 data Operand =
@@ -332,6 +333,8 @@ disassemble1' pfx ofs = do
 
         0x9b -> simple I_WAIT pfx []
 
+        0xaa -> simple I_STOSB pfx []
+
         0xdf -> fpuDF pfx ofs
 
         0xe0 -> jshort I_LOOPNZ pfx ofs
@@ -551,6 +554,7 @@ opertext I_POP = "pop"
 opertext I_CWD = "cwd"
 opertext I_CDQ = "cdq"
 opertext I_CQO = "cqo"
+opertext I_STOSB = "stosb"
 
 --
 
