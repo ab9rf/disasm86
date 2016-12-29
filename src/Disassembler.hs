@@ -221,11 +221,21 @@ type ImmediateU = Immediate Word64
 textrep :: Instruction -> String
 textrep (Instruction p oper operands) =
     let t1 = tp ++ (opertext oper)
-        t2 = intercalate ", " (map ot operands)
+        t2 = intercalate ", " (map operandtext operands)
         tp = concat (map ((++" ").prefixtext) p)
-        ot = if (all isAmbiguousSize operands) then operandtext' else operandtext
+        ost = if ((not (null operands)
+                    && (isAmbiguousSizeInstr oper)
+                    && (all isAmbiguousSize operands)))
+                then (operandsizespec (head operands)) ++ " "
+                else ""
       in case t2 of "" -> t1
-                    _  -> t1 ++ " " ++ t2
+                    _  -> t1 ++ " " ++ ost ++ t2
+
+isAmbiguousSizeInstr I_RET = False
+isAmbiguousSizeInstr I_JZ = False
+isAmbiguousSizeInstr I_JMP = False
+isAmbiguousSizeInstr I_ENTER = False
+isAmbiguousSizeInstr _ = True
 
 prefixtext PrefixA32 = "a32"
 prefixtext PrefixO16 = "o16"
@@ -263,9 +273,11 @@ operandtext (Op_Imm i) = immediatetext i
 operandtext (Op_Const i) = show i
 operandtext o = "!operand "++ (show o) ++ "!"
 
-operandtext' o@(Op_Mem sz _ _ _ _ _) =
-    (case sz of 8 -> "byte"; 16 -> "word"; 32 -> "dword"; 64 -> "qword"; _ -> (show sz)) ++ " " ++ operandtext o
-operandtext' o = operandtext o
+operandsize (Op_Mem sz _ _ _ _ _) = sz
+operandsize (Op_Imm (Immediate sz _)) = sz
+
+operandsizespec o =
+    (case (operandsize o) of 8 -> "byte"; 16 -> "word"; 32 -> "dword"; 64 -> "qword"; sz -> (show sz))
 
 isAmbiguousSize (Op_Reg _) = False
 isAmbiguousSize (Op_Mem _ _ _ _ _ _) = True
@@ -441,9 +453,9 @@ disassemble1' pfx ofs = do
         0x65 -> disassemble1' (pfx { pfxSeg = Just GS }) ofs
         0x66 -> disassemble1' (pfx { pfxO16 = True }) ofs
         0x67 -> disassemble1' (pfx { pfxA32 = True }) ofs
-        0x68 -> opImm I_PUSH pfx opWidth'
+        0x68 -> pushImm pfx opWidth'
         0x69 -> imul3 pfx opWidth' opWidth'
-        0x6a -> opImm I_PUSH pfx 8
+        0x6a -> pushImm pfx 8
         0x6b -> imul3 pfx opWidth' 8
         0x6c -> datamov I_INSB pfx [] opWidth
         0x6d -> let i = case opWidth' of 32 -> I_INSD; 16 -> I_INSW
@@ -744,6 +756,15 @@ testRax pfx opWidth = do
     let reg = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
         ep = emitPfx False False pfx
       in return (Instruction ep I_TEST [Op_Reg reg, Op_Imm imm])
+
+pushImm pfx opWidth = do
+    imm <- (Immediate opWidth) <$> case opWidth of 8  -> fromIntegral <$> getWord8
+                                                   16 -> fromIntegral <$> getWord16le
+                                                   32 -> fromIntegral <$> getWord32le
+                                                   64 -> fromIntegral <$> getWord64le
+    let ep = emitPfx (opWidth /= 8) False pfx
+      in return (Instruction ep I_PUSH [Op_Imm imm])
+
 
 op2 i pfx opWidth direction = do
     (rm, reg, _, _, _) <- modrm pfx opWidth
