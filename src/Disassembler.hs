@@ -170,6 +170,8 @@ data Operation =
       | I_DEC
       | I_CALLF
       | I_JMPF
+      | I_INT1
+      | I_INT3
     deriving (Show, Eq)
 
 data Operand =
@@ -183,6 +185,7 @@ data Operand =
               }
       | Op_Reg Register
       | Op_Imm ImmediateU
+      | Op_Const Int
     deriving (Show, Eq)
 
 data Register =
@@ -220,7 +223,7 @@ textrep (Instruction p oper operands) =
     let t1 = tp ++ (opertext oper)
         t2 = intercalate ", " (map ot operands)
         tp = concat (map ((++" ").prefixtext) p)
-        ot = if (isAmbiguousSize oper) then operandtext' else operandtext
+        ot = if (all isAmbiguousSize operands) then operandtext' else operandtext
       in case t2 of "" -> t1
                     _  -> t1 ++ " " ++ t2
 
@@ -257,11 +260,17 @@ operandtext (Op_Mem sz base idx sf ofs seg) =
                     (Just sr) -> (registertext (RegSeg sr)) ++ ":"
      in "[" ++ so ++ str ++ "]"
 operandtext (Op_Imm i) = immediatetext i
+operandtext (Op_Const i) = show i
 operandtext o = "!operand "++ (show o) ++ "!"
 
 operandtext' o@(Op_Mem sz _ _ _ _ _) =
-    (case sz of 8 -> "byte"; 16 -> "word"; 32 -> "long"; _ -> (show sz)) ++ " " ++ operandtext o
+    (case sz of 8 -> "byte"; 16 -> "word"; 32 -> "dword"; 64 -> "qword"; _ -> (show sz)) ++ " " ++ operandtext o
 operandtext' o = operandtext o
+
+isAmbiguousSize (Op_Reg _) = False
+isAmbiguousSize (Op_Mem _ _ _ _ _ _) = True
+isAmbiguousSize (Op_Imm _) = True
+isAmbiguousSize (Op_Const _ ) = True
 
 immediatetext (Immediate _ v) = "0x" ++ (showHex v "")
 
@@ -436,12 +445,12 @@ disassemble1' pfx ofs = do
         0x69 -> imul3 pfx opWidth' opWidth'
         0x6a -> opImm I_PUSH pfx 8
         0x6b -> imul3 pfx opWidth' 8
-        0x6c -> datamov I_INSB pfx [Op_Reg (Reg16 RDX)]
+        0x6c -> datamov I_INSB pfx []
         0x6d -> let i = case opWidth' of 32 -> I_INSD; 16 -> I_INSW
-                  in datamov i pfx [Op_Reg (Reg16 RDX)]
-        0x6e -> datamov I_OUTSB pfx [Op_Reg (Reg16 RDX)]
+                  in datamov i pfx []
+        0x6e -> datamov I_OUTSB pfx []
         0x6f -> let i = case opWidth' of 32 -> I_OUTSD; 16 -> I_OUTSW
-                  in datamov i pfx [Op_Reg (Reg16 RDX)]
+                  in datamov i pfx []
 
         0x70 -> jshort I_JO pfx ofs
         0x71 -> jshort I_JNO pfx ofs
@@ -554,16 +563,16 @@ disassemble1' pfx ofs = do
         0xca -> do op1 <- fromIntegral <$> getWord16le
                    simple I_RETF pfx [Op_Imm (Immediate 16 op1)]
         0xcb -> simple I_RETF pfx []
-        0xcc -> simple I_INT pfx [Op_Imm (Immediate 8 3)]
+        0xcc -> simple I_INT3 pfx []
         0xcd -> do op1 <- fromIntegral <$> getWord8
                    simple I_INT pfx [Op_Imm (Immediate 8 op1)]
-        0xce -> simple I_INTO pfx []
+        0xce -> fail "invalid"
         0xcf -> let i = case opWidth' of 64 -> I_IRETQ; 32 -> I_IRETD; 16 -> I_IRETW
                     ep = (emitPfx True False pfx)
                   in return (Instruction ep i [])
 
-        0xd0 -> shiftrot1 opWidth pfx (Op_Imm (Immediate 8 1))
-        0xd1 -> shiftrot1 opWidth pfx (Op_Imm (Immediate 8 1))
+        0xd0 -> shiftrot1 opWidth pfx (Op_Const 1)
+        0xd1 -> shiftrot1 opWidth pfx (Op_Const 1)
         0xd2 -> shiftrot1 opWidth pfx (Op_Reg (Reg8 RCX HalfL))
         0xd3 -> shiftrot1 opWidth pfx (Op_Reg (Reg8 RCX HalfL))
         0xd4 -> fail "invalid"
@@ -601,7 +610,7 @@ disassemble1' pfx ofs = do
         0xef -> inout pfx opWidth bitD (Op_Reg (Reg16 RDX))
 
         0xf0 -> disassemble1' (pfx { pfxLock = True }) ofs
-        0xf1 -> fail "invalid"
+        0xf1 -> simple I_INT1 pfx []
         0xf2 -> disassemble1' (pfx { pfxRep = Just PrefixRepNE }) ofs
         0xf3 -> disassemble1' (pfx { pfxRep = Just PrefixRep }) ofs
         0xf4 -> simple I_HLT pfx []
@@ -746,20 +755,18 @@ op2 i pfx opWidth direction = do
 
 movaddr pfx opWidth direction ofs = let
     aWidth = case (pfxA32 pfx) of
-                 (True)  -> 64
-                 (False) -> 32
+                 (True)  -> 32
+                 (False) -> 64
      in do
-        disp <- case opWidth of
+        disp <- case aWidth of
                 64 -> fromIntegral <$> getInt64le
                 32 -> fromIntegral <$> getInt32le
-        eip <- ((ofs+).fromIntegral <$> bytesRead)
-        let iv = bits 0 64 (eip + disp)
-            imm = Op_Mem 64 RegNone RegNone 0 (Immediate 64 iv) Nothing
-            ep = (emitPfx True False pfx)
+        let imm = Op_Mem opWidth RegNone RegNone 0 (Immediate aWidth disp) (pfxSeg pfx)
+            ep = (emitPfx (opWidth /= 8) False pfx)
             reg = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
             ops = case direction of
-                                0 -> [imm, Op_Reg reg]
-                                _ -> [Op_Reg reg, imm]
+                                0 -> [Op_Reg reg, imm]
+                                _ -> [imm, Op_Reg reg]
           in return (Instruction ep I_MOV ops)
 
 imul3 pfx opWidth immSize = do
@@ -767,9 +774,9 @@ imul3 pfx opWidth immSize = do
     imm <- (Immediate immSize) <$> case immSize of 8  -> fromIntegral <$> getWord8
                                                    16 -> fromIntegral <$> getWord16le
                                                    32 -> fromIntegral <$> getWord32le
-                                                   64 -> fromIntegral <$> getWord64le
-    let ep = emitPfx False True pfx
-      in return (Instruction ep I_IMUL [rm, Op_Reg reg, Op_Imm imm])
+                                                   64 -> fromIntegral <$> getWord32le
+    let ep = emitPfx (opWidth /= 8) True pfx
+      in return (Instruction ep I_IMUL [Op_Reg reg, rm, Op_Imm imm])
 
 shiftrot opWidth pfx = do
         (rm, _, op, _, _) <- modrm pfx opWidth
@@ -788,7 +795,7 @@ shiftrot' pfx op rm op2 =
                     3 -> I_RCR
                     4 -> I_SHL
                     5 -> I_SHR
-                    6 -> I_SAL
+                    6 -> I_SHL
                     7 -> I_SAR
             ep = emitPfx False True pfx
           in return (Instruction ep i [rm, op2])
@@ -921,17 +928,6 @@ selectreg rexBit reg opWidth rex = let
 
 --
 
-isAmbiguousSize :: Operation -> Bool
-isAmbiguousSize I_ROL = True
-isAmbiguousSize I_ROR = True
-isAmbiguousSize I_RCL = True
-isAmbiguousSize I_RCR = True
-isAmbiguousSize I_SHL = True
-isAmbiguousSize I_SHR = True
-isAmbiguousSize I_SAL = True
-isAmbiguousSize I_SAR = True
-isAmbiguousSize _     = False
-
 opertext :: Operation -> String
 opertext I_ADD = "add"
 opertext I_OR  = "or"
@@ -1062,6 +1058,8 @@ opertext I_INC = "inc"
 opertext I_DEC = "dec"
 opertext I_CALLF = "callf"
 opertext I_JMPF = "jmpf"
+opertext I_INT1 = "int1"
+opertext I_INT3 = "int3"
 
 
 --
