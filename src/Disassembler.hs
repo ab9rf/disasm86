@@ -63,7 +63,7 @@ data Operation =
       | I_LOOPNZ
       | I_LOOPZ
       | I_LOOP
-      | I_JECXZ
+      | I_JRCXZ
       | I_FFREEP
       | I_FXCH7
       | I_FSTP8
@@ -160,7 +160,7 @@ data Operation =
       | I_RETF
       | I_LEAVE
       | I_RET
-      | I_XLAT
+      | I_XLATB
       | I_NOT
       | I_NEG
       | I_MUL
@@ -445,12 +445,12 @@ disassemble1' pfx ofs = do
         0x69 -> imul3 pfx opWidth' opWidth'
         0x6a -> opImm I_PUSH pfx 8
         0x6b -> imul3 pfx opWidth' 8
-        0x6c -> datamov I_INSB pfx []
+        0x6c -> datamov I_INSB pfx [] opWidth
         0x6d -> let i = case opWidth' of 32 -> I_INSD; 16 -> I_INSW
-                  in datamov i pfx []
-        0x6e -> datamov I_OUTSB pfx []
+                  in datamov i pfx [] opWidth
+        0x6e -> datamov I_OUTSB pfx [] opWidth
         0x6f -> let i = case opWidth' of 32 -> I_OUTSD; 16 -> I_OUTSW
-                  in datamov i pfx []
+                  in datamov i pfx [] opWidth
 
         0x70 -> jshort I_JO pfx ofs
         0x71 -> jshort I_JNO pfx ofs
@@ -512,23 +512,23 @@ disassemble1' pfx ofs = do
         0xa2 -> movaddr pfx opWidth bitD ofs
         0xa3 -> movaddr pfx opWidth bitD ofs
 
-        0xa4 -> datamov I_MOVSB pfx []
+        0xa4 -> datamov I_MOVSB pfx [] opWidth
         0xa5 -> let i = case opWidth' of 64 -> I_MOVSQ; 32 -> I_MOVSD; 16 -> I_MOVSW
-                  in datamov i pfx []
-        0xa6 -> datamov I_CMPSB pfx []
+                  in datamov i pfx [] opWidth
+        0xa6 -> datamov I_CMPSB pfx [] opWidth
         0xa7 -> let i = case opWidth' of 64 -> I_CMPSQ; 32 -> I_CMPSD; 16 -> I_CMPSW
-                  in datamov i pfx []
+                  in datamov i pfx [] opWidth
         0xa8 -> testRax pfx opWidth
         0xa9 -> testRax pfx opWidth
-        0xaa -> datamov I_STOSB pfx []
+        0xaa -> datamov I_STOSB pfx [] opWidth
         0xab -> let i = case opWidth' of 64 -> I_STOSQ; 32 -> I_STOSD; 16 -> I_STOSW
-                    in datamov i pfx []
-        0xac -> datamov I_LODSB pfx []
+                    in datamov i pfx [] opWidth
+        0xac -> datamov I_LODSB pfx [] opWidth
         0xad -> let i = case opWidth' of 64 -> I_LODSQ; 32 -> I_LODSD; 16 -> I_LODSW
-                    in datamov i pfx []
-        0xae -> datamov I_SCASB pfx []
+                    in datamov i pfx [] opWidth
+        0xae -> datamov I_SCASB pfx [] opWidth
         0xaf -> let i = case opWidth' of 64 -> I_SCASQ; 32 -> I_SCASD; 16 -> I_SCASW
-                    in datamov i pfx []
+                    in datamov i pfx [] opWidth
 
         0xb0 -> movreg (bits 0 3 opcode) pfx 8
         0xb1 -> movreg (bits 0 3 opcode) pfx 8
@@ -578,7 +578,7 @@ disassemble1' pfx ofs = do
         0xd4 -> fail "invalid"
         0xd5 -> fail "invalid"
         0xd6 -> fail "invalid"
-        0xd7 -> simple I_XLAT pfx []
+        0xd7 -> simple I_XLATB pfx []
 -- 0xd8
 -- 0xd9
 -- 0xda
@@ -591,7 +591,7 @@ disassemble1' pfx ofs = do
         0xe0 -> jshort I_LOOPNZ pfx ofs
         0xe1 -> jshort I_LOOPZ pfx ofs
         0xe2 -> jshort I_LOOP pfx ofs
-        0xe3 -> jshort I_JECXZ pfx ofs
+        0xe3 -> jshort I_JRCXZ pfx ofs
         0xe4 -> do op1 <- Op_Imm <$> Immediate 8 <$> fromIntegral <$> getWord8
                    inout pfx opWidth bitD op1
         0xe5 -> do op1 <- Op_Imm <$> Immediate 8 <$> fromIntegral <$> getWord8
@@ -733,7 +733,7 @@ movreg r pfx opWidth = do
                                                    32 -> fromIntegral <$> getWord32le
                                                    64 -> fromIntegral <$> getWord64le
     let reg = selectreg 0 r opWidth (pfxRex pfx)
-        ep = emitPfx True False pfx
+        ep = emitPfx (opWidth /= 8) False pfx
       in return (Instruction ep I_MOV [Op_Reg reg, Op_Imm imm])
 
 testRax pfx opWidth = do
@@ -820,7 +820,7 @@ modrm pfx opWidth = do
         so = (pfxSeg pfx)
       in do
         sib <- if hasSib then (parseSib (pfxRex pfx) aWidth <$> getWord8) else return (RegNone,RegNone,0)
-        disp <- getDisp dispSize <|> (return $ Immediate 0 0)
+        disp <- getDisp dispSize
         let rm = case (b'mod, b'rm) of
                 (3,_) -> Op_Reg (selectreg 0 b'rm opWidth (pfxRex pfx))
                 (0,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp so
@@ -834,10 +834,12 @@ opImm i pfx opWidth = do
              8 -> fromIntegral <$> getWord8
              16 -> fromIntegral <$> getWord16le
              32 -> fromIntegral <$> getWord32le
+             64 -> fromIntegral <$> getWord32le -- why?
     let reg = case opWidth of
              8 -> Reg8 RAX HalfL
              16 -> Reg16 RAX
              32 -> (if bitTest 3 (pfxRex pfx) then Reg64 else Reg32) RAX
+             64 -> Reg64 RAX
         imm = Immediate opWidth iv
         ep = (emitPfx (opWidth /= 8) False pfx)
       in return (Instruction ep i [Op_Reg reg, Op_Imm imm])
@@ -846,8 +848,8 @@ simple i pfx opl = let
         ep = (emitPfx False False pfx)
     in return (Instruction ep i opl)
 
-datamov i pfx opl = let
-        ep = (emitPfx True False pfx) ++
+datamov i pfx opl opwidth = let
+        ep = (emitPfx (opwidth /= 8) False pfx) ++
               (maybe [] ((:[]).PrefixSeg) (pfxSeg pfx))
     in return (Instruction ep i opl)
 
@@ -952,7 +954,7 @@ opertext I_JMP = "jmp"
 opertext I_LOOPNZ = "loopnz"
 opertext I_LOOPZ = "loopz"
 opertext I_LOOP = "loop"
-opertext I_JECXZ = "jecxz"
+opertext I_JRCXZ = "jrcxz"
 opertext I_FFREEP = "ffreep"
 opertext I_FXCH7 = "fxch7"
 opertext I_FSTP8 = "fstp8"
@@ -1049,7 +1051,7 @@ opertext I_INT = "int"
 opertext I_RETF = "retf"
 opertext I_LEAVE = "leave"
 opertext I_RET = "ret"
-opertext I_XLAT = "xlat"
+opertext I_XLATB = "xlatb"
 opertext I_NOT = "not"
 opertext I_NEG = "neg"
 opertext I_IDIV = "idiv"
@@ -1155,5 +1157,7 @@ registertext (RegSeg ES) = "es"
 registertext (RegSeg SS) = "ss"
 registertext (RegSeg FS) = "fs"
 registertext (RegSeg GS) = "gs"
+registertext (RegSeg SR6) = "cr0" -- dubious
+registertext (RegSeg SR7) = "cr1" -- dubious
 
 registertext r = "!reg:" ++ (show r) ++ "!"
