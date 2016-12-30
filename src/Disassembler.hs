@@ -231,8 +231,25 @@ textrep (Instruction p oper operands) =
       in case t2 of "" -> t1
                     _  -> t1 ++ " " ++ ost ++ t2
 
+isAmbiguousSizeInstr I_INT = False
 isAmbiguousSizeInstr I_RET = False
+isAmbiguousSizeInstr I_RETF = False
+isAmbiguousSizeInstr I_JO = False
+isAmbiguousSizeInstr I_JNO = False
+isAmbiguousSizeInstr I_JB = False
+isAmbiguousSizeInstr I_JAE = False
 isAmbiguousSizeInstr I_JZ = False
+isAmbiguousSizeInstr I_JNZ = False
+isAmbiguousSizeInstr I_JBE = False
+isAmbiguousSizeInstr I_JA = False
+isAmbiguousSizeInstr I_JS = False
+isAmbiguousSizeInstr I_JNS = False
+isAmbiguousSizeInstr I_JP = False
+isAmbiguousSizeInstr I_JNP = False
+isAmbiguousSizeInstr I_JL = False
+isAmbiguousSizeInstr I_JNL = False
+isAmbiguousSizeInstr I_JLE = False
+isAmbiguousSizeInstr I_JG = False
 isAmbiguousSizeInstr I_JMP = False
 isAmbiguousSizeInstr I_ENTER = False
 isAmbiguousSizeInstr _ = True
@@ -715,7 +732,7 @@ movimm pfx opWidth = do
         imm <- (Immediate opWidth) <$> case opWidth of 8  -> fromIntegral <$> getWord8
                                                        16 -> fromIntegral <$> getWord16le
                                                        32 -> fromIntegral <$> getWord32le
-                                                       64 -> fromIntegral <$> getWord64le
+                                                       64 -> fromIntegral <$> getWord32le -- FIXME?
         let ep = emitPfx False True pfx
           in return (Instruction ep I_MOV [rm, Op_Imm imm])
 
@@ -729,9 +746,9 @@ movsr pfx opWidth direction = do
       in return (Instruction ep I_MOV ops)
 
 pushpop i pfx opWidth = do
-    (rm, _, _, _, _) <- modrm pfx opWidth
-    let ep = emitPfx True True pfx
-      in return (Instruction ep i [rm])
+    (rm, _, op, _, _) <- modrm pfx 64
+    case op of 0 -> let ep = emitPfx True True pfx in return (Instruction ep i [rm])
+               _ -> fail "invalid"
 
 xchg r opWidth pfx = let
         reg1 = selectreg 0 r opWidth (pfxRex pfx)
@@ -870,8 +887,8 @@ simple i pfx opl = let
     in return (Instruction ep i opl)
 
 datamov i pfx opl opwidth = let
-        ep = (emitPfx (opwidth /= 8) False pfx) ++
-              (maybe [] ((:[]).PrefixSeg) (pfxSeg pfx))
+        ep = (emitPfx (opwidth /= 8) False pfx)
+--                ++  (maybe [] ((:[]).PrefixSeg) (pfxSeg pfx))
     in return (Instruction ep i opl)
 
 jmpcall i pfx ofs = let
