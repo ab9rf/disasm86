@@ -13,7 +13,7 @@ module Disassembler
 
 import Control.Monad (join)
 import Data.ByteString.Lazy (ByteString)
-import Data.Word (Word8, Word64)
+import Data.Word (Word64, Word32, Word16, Word8)
 import Data.Int (Int64)
 import Data.Binary.Get
 import Data.Bits
@@ -115,6 +115,7 @@ data Operation =
       | I_SAL
       | I_SAR
       | I_NOP
+      | I_PAUSE
       | I_XCHG
       | I_IMUL
       | I_MOVSXD
@@ -191,6 +192,7 @@ data Operation =
 data Operand =
         Op_Mem {
                 mSize  :: Int
+              , mASize :: Int
               , mReg   :: Register
               , mIdx   :: Register
               , mScale :: Word8
@@ -277,7 +279,7 @@ prefixtext (PrefixSeg r) = (registertext.RegSeg) r
 
 operandtext :: Operand -> String
 operandtext (Op_Reg r) = registertext r
-operandtext (Op_Mem sz base idx sf ofs seg) =
+operandtext (Op_Mem sz asz base idx sf ofs seg) =
     let bs = registertext base
         is = case (idx,sf)  of
                     (RegNone,_) -> ""
@@ -285,8 +287,8 @@ operandtext (Op_Mem sz base idx sf ofs seg) =
                     (_,_)       -> ((registertext idx) ++ "*" ++ (show sf))
         os = case ofs of Immediate 0 _         -> ""
                          Immediate _ 0         -> "0x0"
-                         Immediate _ v | only || v > 0 -> ("0x" ++ (showHex (unsigned v)) "")
-                                       |         v < 0 -> ("-0x" ++ (showHex (negate v)) "")
+                         Immediate isz v | asz == isz || only || v > 0 -> ("0x" ++ (showHex (unsigned asz v)) "")
+                                         |                       v < 0 -> ("-0x" ++ (showHex (negate v)) "")
         bsis = case (bs,is) of
                     ("",_) -> is
                     (_,"") -> bs
@@ -300,21 +302,26 @@ operandtext (Op_Mem sz base idx sf ofs seg) =
                     Nothing -> ""
                     (Just sr) -> (registertext (RegSeg sr)) ++ ":"
         only = case (base,idx) of (RegNone,RegNone) -> True; _ -> False
-        unsigned x | x < 0  = (fromIntegral (maxBound :: Word64)) + (fromIntegral x) + (1 :: Integer)
-                   | x >= 0 = (fromIntegral x) :: Integer
+        unsigned sz x | x < 0  = max + (fromIntegral x) + (1 :: Integer)
+                      | x >= 0 = (fromIntegral x) :: Integer
+           where max = case sz of 64 -> (fromIntegral (maxBound :: Word64))
+                                  32 -> (fromIntegral (maxBound :: Word32))
+                                  16 -> (fromIntegral (maxBound :: Word16))
+                                  8  -> (fromIntegral (maxBound :: Word8))
+
      in "[" ++ so ++ str ++ "]"
 operandtext (Op_Imm i) = immediatetext i
 operandtext (Op_Const i) = show i
 operandtext o = "!operand "++ (show o) ++ "!"
 
-operandsize (Op_Mem sz _ _ _ _ _) = sz
+operandsize (Op_Mem sz _ _ _ _ _ _) = sz
 operandsize (Op_Imm (Immediate sz _)) = sz
 
 operandsizespec o =
     (case (operandsize o) of 8 -> "byte"; 16 -> "word"; 32 -> "dword"; 64 -> "qword"; sz -> (show sz))
 
 isAmbiguousSize (Op_Reg _) = False
-isAmbiguousSize (Op_Mem _ _ _ _ _ _) = True
+isAmbiguousSize (Op_Mem _ _ _ _ _ _ _) = True
 isAmbiguousSize (Op_Imm _) = True
 isAmbiguousSize (Op_Const _ ) = True
 
@@ -532,7 +539,7 @@ disassemble1' pfx ofs = do
         0x8e -> movsr pfx opWidth' bitD
         0x8f -> pushpop I_POP pfx opWidth
 
-        0x90 -> simple I_NOP pfx []
+        0x90 -> simple (case (pfxRep pfx) of Nothing -> I_NOP; _ -> I_PAUSE) pfx []
         0x91 -> xchg (bits 0 3 opcode) opWidth' pfx
         0x92 -> xchg (bits 0 3 opcode) opWidth' pfx
         0x93 -> xchg (bits 0 3 opcode) opWidth' pfx
@@ -747,13 +754,15 @@ grp80 pfx opWidth immSize = do
           in return (Instruction ep i [rm, Op_Imm imm])
 
 movimm pfx opWidth = do
-        (rm, _, _, _, _) <- modrm pfx opWidth
-        imm <- (Immediate opWidth) <$> case opWidth of 8  -> fromIntegral <$> getWord8
-                                                       16 -> fromIntegral <$> getWord16le
-                                                       32 -> fromIntegral <$> getWord32le
-                                                       64 -> fromIntegral <$> getWord32le -- FIXME?
-        let ep = emitPfx False True pfx
-          in return (Instruction ep I_MOV [rm, Op_Imm imm])
+        (rm, _, op, _, _) <- modrm pfx opWidth
+        case op of 0 -> do imm <- (Immediate opWidth) <$> case opWidth of
+                                       8  -> fromIntegral <$> getWord8
+                                       16 -> fromIntegral <$> getWord16le
+                                       32 -> fromIntegral <$> getWord32le
+                                       64 -> fromIntegral <$> getWord32le -- FIXME?
+                           let ep = emitPfx False True pfx
+                             in return (Instruction ep I_MOV [rm, Op_Imm imm])
+                   _ -> fail "invalid"
 
 movsr pfx opWidth direction = do
     (rm, _, sr, _, _) <- modrm pfx opWidth
@@ -818,7 +827,7 @@ movaddr pfx opWidth direction ofs = let
         disp <- case aWidth of
                 64 -> fromIntegral <$> getWord64le
                 32 -> fromIntegral <$> getWord32le
-        let imm = Op_Mem opWidth RegNone RegNone 0 (Immediate aWidth disp) (pfxSeg pfx)
+        let imm = Op_Mem opWidth aWidth RegNone RegNone 0 (Immediate aWidth disp) (pfxSeg pfx)
             ep = (emitPfx (opWidth /= 8) True pfx)
             reg = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
             ops = case direction of
@@ -857,8 +866,9 @@ shiftrot' pfx op rm op2 =
             ep = emitPfx False True pfx
           in return (Instruction ep i [rm, op2])
 
-modrm pfx opWidth = do
-    modrm <- getWord8
+modrm pfx opWidth = getWord8 >>= modrm' pfx opWidth
+
+modrm' pfx opWidth modrm =
     let b'mod = bits 6 2 modrm
         b'reg = bits 3 3 modrm
         b'rm  = bits 0 3 modrm
@@ -880,10 +890,10 @@ modrm pfx opWidth = do
         disp <- getDisp dispSize
         let rm = case (b'mod, b'rm) of
                 (3,_) -> Op_Reg (selectreg 0 b'rm opWidth (pfxRex pfx))
-                (0,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp so
-                (1,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp so
-                (2,4) -> let (br, sr, sc) = sib in Op_Mem opWidth br sr sc disp so
-                (_,_) -> Op_Mem opWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) RegNone 0 disp so
+                (0,4) -> let (br, sr, sc) = sib in Op_Mem opWidth aWidth br sr sc disp so
+                (1,4) -> let (br, sr, sc) = sib in Op_Mem opWidth aWidth br sr sc disp so
+                (2,4) -> let (br, sr, sc) = sib in Op_Mem opWidth aWidth br sr sc disp so
+                (_,_) -> Op_Mem opWidth aWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) RegNone 0 disp so
           in return (rm, reg, b'reg, b'mod, b'rm)
 
 opImm i pfx opWidth = do
@@ -936,20 +946,30 @@ jshort i pfx ofs = do
               in return (Instruction ep i [Op_Imm imm])
 
 fpu opcode pfx ofs = do
-            (rm, _, op, mod, reg) <- modrm pfx 32
-            let ep = (emitPfx False False pfx)
+            byte <- getWord8
+            (rm, _, op, mod, reg) <- modrm' pfx 32 byte
+            (rm64, _, _, _, _) <- modrm' pfx 64 byte
+            let ep = (emitPfx False True pfx)
                 set = bits 0 3 opcode
                 fpureg = RegFPU ([ST0, ST1, ST2, ST3, ST4, ST5, ST6, ST7] !! reg)
                 r i o = return (Instruction ep i o)
                in case (set, op, mod) of
-                    (0, 0, _) -> r I_FADD [Op_Reg (RegFPU ST0), rm]
-                    (0, 1, _) -> r I_FMUL [Op_Reg (RegFPU ST0), rm]
-                    (0, 2, _) -> r I_FCOM [Op_Reg (RegFPU ST0), rm]
-                    (0, 3, _) -> r I_FCOMP [Op_Reg (RegFPU ST0), rm]
-                    (0, 4, _) -> r I_FSUB [Op_Reg (RegFPU ST0), rm]
-                    (0, 5, _) -> r I_FSUBR [Op_Reg (RegFPU ST0), rm]
-                    (0, 6, _) -> r I_FDIV [Op_Reg (RegFPU ST0), rm]
-                    (0, 7, _) -> r I_FDIVR [Op_Reg (RegFPU ST0), rm]
+                    (0, 0, _) -> r I_FADD [rm]
+                    (0, 1, _) -> r I_FMUL [rm]
+                    (0, 2, _) -> r I_FCOM [rm]
+                    (0, 3, _) -> r I_FCOMP [rm]
+                    (0, 4, _) -> r I_FSUB [rm]
+                    (0, 5, _) -> r I_FSUBR [rm]
+                    (0, 6, _) -> r I_FDIV [rm]
+                    (0, 7, _) -> r I_FDIVR [rm]
+                    (4, 0, _) -> r I_FADD [rm64]
+                    (4, 1, _) -> r I_FMUL [rm64]
+                    (4, 2, _) -> r I_FCOM [rm64]
+                    (4, 3, _) -> r I_FCOMP [rm64]
+                    (4, 4, _) -> r I_FSUB [rm64]
+                    (4, 5, _) -> r I_FSUBR [rm64]
+                    (4, 6, _) -> r I_FDIV [rm64]
+                    (4, 7, _) -> r I_FDIVR [rm64]
                     (1, 0, _) -> r I_FLD [Op_Reg (RegFPU ST0), rm]
                     (1, 1, 3) -> if reg == 1 then r I_FXCH [] else r I_FXCH [Op_Reg (RegFPU ST0), rm]
                     (1, 1, _) -> r I_FXCH [Op_Reg (RegFPU ST0), rm]
@@ -1155,7 +1175,7 @@ opertext I_FST = "fst"
 opertext I_FSTP = "fstp"
 opertext I_FLD = "fld"
 opertext I_FLDENV = "fldenv"
-
+opertext I_PAUSE = "pause"
 --
 
 registertext :: Register -> String
