@@ -121,6 +121,36 @@ testdis t = intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble 0x1000 (
 ----
 
 statictests = map toBS [
+      "0000"
+    , "7f7f7f7fb6b6b6b6b6"
+    , "817f7f7f7fb6b6b6b6b6"
+    , "44817f7f7f7fb6b6b6b6b6"
+    , "a144817f7f7f7fb6b6b6b6b6"
+    , "42a144817f7f7f7fb6b6b6b6b6"
+    , "6642a144817f7f7f7fb6b6b6b6b6"
+    , "676642a144817f7f7f7fb6b6b6b6b6"
+    , "e4b72929292929292929"
+    , "fee4b72929292929292929"
+    , "4bfee4b72929292929292929"
+    , "364bfee4b72929292929292929"
+    , "67364bfee4b72929292929292929"
+    , "f367364bfee4b72929292929292929"
+    , "5c6300000000e2e2e2e2"
+    , "385c6300000000e2e2e2e2"
+    , "48385c6300000000e2e2e2e2"
+    , "6448385c6300000000e2e2e2e2"
+    , "676448385c6300000000e2e2e2e2"
+    , "f2676448385c6300000000e2e2e2e2"
+    , "98645a7f7f7f7fc4c4c4c4"
+    , "4998645a7f7f7f7fc4c4c4c4"
+    , "654998645a7f7f7f7fc4c4c4c4"
+    , "66654998645a7f7f7f7fc4c4c4c4"
+    , "f066654998645a7f7f7f7fc4c4c4c4"
+    , "1e1e1e1e1e1e1e1e1e1e1e"
+    , "ca1e1e1e1e1e1e1e1e1e1e1e"
+    , "c7ca1e1e1e1e1e1e1e1e1e1e1e"
+    , "3ec7ca1e1e1e1e1e1e1e1e1e1e1e"
+    , "f33ec7ca1e1e1e1e1e1e1e1e1e1e1e"
     ]
 
 

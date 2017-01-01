@@ -541,9 +541,11 @@ disassemble1' pfx ofs = do
         0x96 -> xchg (bits 0 3 opcode) opWidth' pfx
         0x97 -> xchg (bits 0 3 opcode) opWidth' pfx
         0x98 -> let i = case opWidth' of 64 -> I_CDQE; 32 -> I_CWDE; 16 -> I_CBW
-                  in simple i pfx []
+                    ep = (emitPfx True False pfx)
+                 in return (Instruction ep i [])
         0x99 -> let i = case opWidth' of 64 -> I_CQO; 32 -> I_CDQ; 16 -> I_CWD
-                  in simple i pfx []
+                    ep = (emitPfx True False pfx)
+                 in return (Instruction ep i [])
         0x9a -> fail "invalid"
         0x9b -> simple I_WAIT pfx []
         0x9c -> let i = case opWidth' of 32 -> I_PUSHFQ; 64 -> I_PUSHFQ; 16 -> I_PUSHF
@@ -905,7 +907,7 @@ simple i pfx opl = let
 
 datamov i pfx opl opwidth = let
         ep = (emitPfx (opwidth /= 8) False pfx)
---                ++  (maybe [] ((:[]).PrefixSeg) (pfxSeg pfx))
+                ++  (maybe [] ((:[]).PrefixSeg) (pfxSeg pfx))
     in return (Instruction ep i opl)
 
 jmpcall i pfx ofs = let
