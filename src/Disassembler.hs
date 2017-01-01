@@ -172,6 +172,20 @@ data Operation =
       | I_JMPF
       | I_INT1
       | I_INT3
+      | I_FADD
+      | I_FMUL
+      | I_FCOM
+      | I_FCOMP
+      | I_FSUB
+      | I_FSUBR
+      | I_FDIV
+      | I_FDIVR
+      | I_FXCH
+      | I_FNOP
+      | I_FST
+      | I_FSTP
+      | I_FLD
+      | I_FLDENV
     deriving (Show, Eq)
 
 data Operand =
@@ -611,14 +625,14 @@ disassemble1' pfx ofs = do
         0xd5 -> fail "invalid"
         0xd6 -> fail "invalid"
         0xd7 -> simple I_XLATB pfx []
--- 0xd8
--- 0xd9
--- 0xda
--- 0xdb
--- 0xdc
--- 0xdd
--- 0xee
-        0xdf -> fpuDF pfx ofs
+        0xd8 -> fpu opcode pfx ofs
+        0xd9 -> fpu opcode pfx ofs
+        0xda -> fpu opcode pfx ofs
+        0xdb -> fpu opcode pfx ofs
+        0xdc -> fpu opcode pfx ofs
+        0xdd -> fpu opcode pfx ofs
+        0xde -> fpu opcode pfx ofs
+        0xdf -> fpu opcode pfx ofs
 
         0xe0 -> jshort I_LOOPNZ pfx ofs
         0xe1 -> jshort I_LOOPZ pfx ofs
@@ -695,14 +709,14 @@ grpf6 pfx opWidth = do
                             return (Instruction ep I_TEST [rm, Op_Imm imm])
 
 grpfe pfx opWidth = do
-        (rm, _, op, _, _) <- modrm pfx opWidth
+        (rm, _, op, mod, _) <- modrm pfx opWidth
         let ep = emitPfx False True pfx
             in case op of
                 0 -> return (Instruction ep I_INC [rm])
                 1 -> return (Instruction ep I_DEC [rm])
                 2 -> return (Instruction ep I_CALL [rm])
                 3 -> return (Instruction ep I_CALLF [rm])
-                4 -> return (Instruction ep I_JMP [rm])
+                4 -> if (mod == 3) then fail "invalid" else return (Instruction ep I_JMP [rm])
                 5 -> return (Instruction ep I_JMPF [rm])
                 6 -> return (Instruction ep I_PUSH [rm])
                 7 -> fail "invalid"
@@ -916,40 +930,59 @@ jshort i pfx ofs = do
                 ep = (emitPfx False False pfx)
               in return (Instruction ep i [Op_Imm imm])
 
-fpuDF pfx ofs = do
+fpu opcode pfx ofs = do
             (rm, _, op, mod, reg) <- modrm pfx 32
             let ep = (emitPfx False False pfx)
+                set = bits 0 3 opcode
                 fpureg = RegFPU ([ST0, ST1, ST2, ST3, ST4, ST5, ST6, ST7] !! reg)
-               in case (op, mod) of
-                    (0, 3) -> return (Instruction ep I_FFREEP [Op_Reg fpureg])
-                    (1, 3) -> return (Instruction ep I_FXCH7 [Op_Reg fpureg])
-                    (2, 3) -> return (Instruction ep I_FSTP8 [Op_Reg fpureg])
-                    (3, 3) -> return (Instruction ep I_FSTP9 [Op_Reg fpureg])
-                    (4, 3) -> case reg of
-                                0 -> return (Instruction ep I_FSTSW [Op_Reg (Reg16 RAX)])
-                                1 -> return (Instruction ep I_FSTDW [Op_Reg (Reg16 RAX)])
-                                2 -> return (Instruction ep I_FSTSG [Op_Reg (Reg16 RAX)])
+                r i o = return (Instruction ep i o)
+               in case (set, op, mod) of
+                    (0, 0, _) -> r I_FADD [Op_Reg (RegFPU ST0), rm]
+                    (0, 1, _) -> r I_FMUL [Op_Reg (RegFPU ST0), rm]
+                    (0, 2, _) -> r I_FCOM [Op_Reg (RegFPU ST0), rm]
+                    (0, 3, _) -> r I_FCOMP [Op_Reg (RegFPU ST0), rm]
+                    (0, 4, _) -> r I_FSUB [Op_Reg (RegFPU ST0), rm]
+                    (0, 5, _) -> r I_FSUBR [Op_Reg (RegFPU ST0), rm]
+                    (0, 6, _) -> r I_FDIV [Op_Reg (RegFPU ST0), rm]
+                    (0, 7, _) -> r I_FDIVR [Op_Reg (RegFPU ST0), rm]
+                    (1, 0, _) -> r I_FLD [Op_Reg (RegFPU ST0), rm]
+                    (1, 1, 3) -> if reg == 1 then r I_FXCH [] else r I_FXCH [Op_Reg (RegFPU ST0), rm]
+                    (1, 1, _) -> r I_FXCH [Op_Reg (RegFPU ST0), rm]
+                    (1, 2, 3) -> if reg == 0 then r I_FNOP [] else r I_FST [Op_Reg (RegFPU ST0), rm]
+                    (1, 2, _) -> r I_FST [Op_Reg (RegFPU ST0), rm]
+                    (1, 3, _) -> r I_FSTP [Op_Reg (RegFPU ST0), rm]
+                    (1, 4, _) -> r I_FLDENV [Op_Reg (RegFPU ST0), rm]
+                    (7, 0, 3) -> r I_FFREEP [Op_Reg fpureg]
+                    (7, 1, 3) -> r I_FXCH7 [Op_Reg fpureg]
+                    (7, 2, 3) -> r I_FSTP8 [Op_Reg fpureg]
+                    (7, 3, 3) -> r I_FSTP9 [Op_Reg fpureg]
+                    (7, 4, 3) -> case reg of
+                                0 -> r I_FSTSW [Op_Reg (Reg16 RAX)]
+                                1 -> r I_FSTDW [Op_Reg (Reg16 RAX)]
+                                2 -> r I_FSTSG [Op_Reg (Reg16 RAX)]
                                 3 -> fail "invalid"
-                    (5, 3) -> return (Instruction ep I_FUCOMIP [Op_Reg fpureg])
-                    (6, 3) -> return (Instruction ep I_FCOMIP [Op_Reg fpureg])
-                    (7, 3) -> fail "invalid"
-                    (0, _) -> return (Instruction ep I_FILD [rm])
-                    (1, _) -> return (Instruction ep I_FISTTP [rm])
-                    (2, _) -> return (Instruction ep I_FIST [rm])
-                    (3, _) -> return (Instruction ep I_FISTP [rm])
-                    (4, _) -> return (Instruction ep I_FBLD [rm])
-                    (5, _) -> return (Instruction ep I_FILD [rm])
-                    (6, _) -> return (Instruction ep I_FBSTP [rm])
-                    (7, _) -> return (Instruction ep I_FISTP [rm])
+                    (7, 5, 3) -> r I_FUCOMIP [Op_Reg fpureg]
+                    (7, 6, 3) -> r I_FCOMIP [Op_Reg fpureg]
+                    (7, 7, 3) -> fail "invalid"
+                    (7, 0, _) -> r I_FILD [rm]
+                    (7, 1, _) -> r I_FISTTP [rm]
+                    (7, 2, _) -> r I_FIST [rm]
+                    (7, 3, _) -> r I_FISTP [rm]
+                    (7, 4, _) -> r I_FBLD [rm]
+                    (7, 5, _) -> r I_FILD [rm]
+                    (7, 6, _) -> r I_FBSTP [rm]
+                    (7, 7, _) -> r I_FISTP [rm]
+
 
 parseSib rex aw sib = let
                      br = bits 0 3 sib
                      ir = bits 3 3 sib
                      ss = bits 6 2 sib
+                     sp = (case aw of 16 -> Reg16; 32 -> Reg32; 64 -> Reg64) RSP
                      breg = selectreg 0 br aw rex
                      ireg = selectreg 1 ir aw rex
                      sf = case ss of { 0 -> 1; 1 -> 2; 2 -> 4; 3 -> 8 }
-                    in (breg, ireg, sf)
+                    in (breg, if ireg == sp then RegNone else ireg, sf)
 
 selectreg rexBit reg opWidth rex = let
                 rvec' = case () of
@@ -972,6 +1005,14 @@ selectreg rexBit reg opWidth rex = let
 --
 
 opertext :: Operation -> String
+opertext I_FADD = "fadd"
+opertext I_FMUL = "fmul"
+opertext I_FCOM = "fcom"
+opertext I_FCOMP = "fcomp"
+opertext I_FSUB = "fsub"
+opertext I_FSUBR = "fsubr"
+opertext I_FDIV = "fdiv"
+opertext I_FDIVR = "fdivr"
 opertext I_ADD = "add"
 opertext I_OR  = "or"
 opertext I_ADC = "adc"
@@ -1103,7 +1144,12 @@ opertext I_CALLF = "callf"
 opertext I_JMPF = "jmpf"
 opertext I_INT1 = "int1"
 opertext I_INT3 = "int3"
-
+opertext I_FXCH = "fxch"
+opertext I_FNOP = "fnop"
+opertext I_FST = "fst"
+opertext I_FSTP = "fstp"
+opertext I_FLD = "fld"
+opertext I_FLDENV = "fldenv"
 
 --
 
