@@ -268,6 +268,9 @@ isAmbiguousSizeInstr I_JLE = False
 isAmbiguousSizeInstr I_JG = False
 isAmbiguousSizeInstr I_JMP = False
 isAmbiguousSizeInstr I_ENTER = False
+isAmbiguousSizeInstr I_LOOP = False
+isAmbiguousSizeInstr I_LOOPZ = False
+isAmbiguousSizeInstr I_LOOPNZ = False
 isAmbiguousSizeInstr _ = True
 
 prefixtext PrefixA32 = "a32"
