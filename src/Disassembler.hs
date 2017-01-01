@@ -271,8 +271,8 @@ operandtext (Op_Mem sz base idx sf ofs seg) =
                     (_,_)       -> ((registertext idx) ++ "*" ++ (show sf))
         os = case ofs of Immediate 0 _         -> ""
                          Immediate _ 0         -> "0x0"
-                         Immediate _ v | v > 0 -> ("0x" ++ (showHex v) "")
-                                        | v < 0 -> ("-0x" ++ (showHex (negate v)) "")
+                         Immediate _ v | only || v > 0 -> ("0x" ++ (showHex (unsigned v)) "")
+                                       |         v < 0 -> ("-0x" ++ (showHex (negate v)) "")
         bsis = case (bs,is) of
                     ("",_) -> is
                     (_,"") -> bs
@@ -285,6 +285,9 @@ operandtext (Op_Mem sz base idx sf ofs seg) =
         so = case (seg) of
                     Nothing -> ""
                     (Just sr) -> (registertext (RegSeg sr)) ++ ":"
+        only = case (base,idx) of (RegNone,RegNone) -> True; _ -> False
+        unsigned x | x < 0  = (fromIntegral (maxBound :: Word64)) + (fromIntegral x) + (1 :: Integer)
+                   | x >= 0 = (fromIntegral x) :: Integer
      in "[" ++ so ++ str ++ "]"
 operandtext (Op_Imm i) = immediatetext i
 operandtext (Op_Const i) = show i
@@ -797,10 +800,10 @@ movaddr pfx opWidth direction ofs = let
                  (False) -> 64
      in do
         disp <- case aWidth of
-                64 -> fromIntegral <$> getInt64le
-                32 -> fromIntegral <$> getInt32le
+                64 -> fromIntegral <$> getWord64le
+                32 -> fromIntegral <$> getWord32le
         let imm = Op_Mem opWidth RegNone RegNone 0 (Immediate aWidth disp) (pfxSeg pfx)
-            ep = (emitPfx (opWidth /= 8) False pfx)
+            ep = (emitPfx (opWidth /= 8) True pfx)
             reg = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
             ops = case direction of
                                 0 -> [Op_Reg reg, imm]
