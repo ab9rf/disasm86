@@ -906,8 +906,11 @@ simple i pfx opl = let
     in return (Instruction ep i opl)
 
 datamov i pfx opl opwidth = let
+        pe' = (maybe [] ((:[]).PrefixSeg) (pfxSeg pfx))
+        pe = case i of I_OUTSB -> []
+                       _       -> pe
         ep = (emitPfx (opwidth /= 8) False pfx)
-                ++  (maybe [] ((:[]).PrefixSeg) (pfxSeg pfx))
+
     in return (Instruction ep i opl)
 
 jmpcall i pfx ofs = let
