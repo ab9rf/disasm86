@@ -189,6 +189,14 @@ data Operation =
       | I_FLDENV
       | I_OUTSQ
       | I_INSQ
+      | I_FIADD
+      | I_FIMUL
+      | I_FICOM
+      | I_FICOMP
+      | I_FISUB
+      | I_FISUBR
+      | I_FIDIV
+      | I_FIDIVR
     deriving (Show, Eq)
 
 data Operand =
@@ -329,10 +337,10 @@ operandtext o = "!operand "++ (show o) ++ "!"
 
 operandsize (Op_Mem sz _ _ _ _ _ _) = sz
 operandsize (Op_Imm (Immediate sz _)) = sz
-operandSize (Op_Reg (Reg8 _ _)) = 8
-operandSize (Op_Reg (Reg16 _)) = 16
-operandSize (Op_Reg (Reg32 _)) = 32
-operandSize (Op_Reg (Reg64 _)) = 64
+operandsize (Op_Reg (Reg8 _ _)) = 8
+operandsize (Op_Reg (Reg16 _)) = 16
+operandsize (Op_Reg (Reg32 _)) = 32
+operandsize (Op_Reg (Reg64 _)) = 64
 
 operandsizespec o =
     (case (operandsize o) of 8 -> "byte"; 16 -> "word"; 32 -> "dword"; 64 -> "qword"; sz -> (show sz))
@@ -581,9 +589,8 @@ disassemble1' pfx ofs = do
         0x9b -> simple I_WAIT pfx []
         0x9c -> let ep = (emitPfx True False pfx)
                  in return (Instruction ep I_PUSHFQ [])
-        0x9d -> let i = case opWidth' of 32 -> I_POPFQ; 64 -> I_POPFQ; 16 -> I_POPF
-                    ep = (emitPfx True False pfx)
-                 in return (Instruction ep i [])
+        0x9d -> let ep = (emitPfx True False pfx)
+                 in return (Instruction ep I_POPFQ [])
         0x9e -> simple I_SAHF pfx []
         0x9f -> simple I_LAHF pfx []
 
@@ -904,19 +911,19 @@ modrm pfx opWidth = do
             (1,_) -> Just 8
             (2,_) -> Just 32
             _     -> Nothing
-        getDisp sz = case sz of
-            Just 8 -> (Immediate 8 . fromIntegral) <$> getInt8
-            Just 32 -> (Immediate 32 . fromIntegral) <$> getInt32le
-            _  -> return $ Immediate 0 0
         so = (pfxSeg pfx)
       in do
-        sib <- if hasSib then (parseSib (pfxRex pfx) aWidth <$> getWord8) else return (RegNone,RegNone,0)
-        disp <- getDisp dispSize
+        (sib,dispSize') <- if hasSib then (parseSib b'mod dispSize (pfxRex pfx) aWidth) <$> getWord8
+                                     else return ((RegNone,RegNone,0),dispSize)
+        disp <- case dispSize' of
+                    Just 8 -> (Immediate 8 . fromIntegral) <$> getInt8
+                    Just 32 -> (Immediate 32 . fromIntegral) <$> getInt32le
+                    _  -> return $ Immediate 0 0
         let rm = case (b'mod, b'rm) of
                 (3,_) -> Op_Reg (selectreg 0 b'rm opWidth (pfxRex pfx))
-                (0,4) -> let (br, sr, sc) = sib in Op_Mem opWidth aWidth br sr sc disp so
-                (1,4) -> let (br, sr, sc) = sib in Op_Mem opWidth aWidth br sr sc disp so
-                (2,4) -> let (br, sr, sc) = sib in Op_Mem opWidth aWidth br sr sc disp so
+                (0,4) -> let (br, ir, sc) = sib in Op_Mem opWidth aWidth br ir sc disp so
+                (1,4) -> let (br, ir, sc) = sib in Op_Mem opWidth aWidth br ir sc disp so
+                (2,4) -> let (br, ir, sc) = sib in Op_Mem opWidth aWidth br ir sc disp so
                 (_,_) -> Op_Mem opWidth aWidth (selectreg 0 b'rm aWidth (pfxRex pfx)) RegNone 0 disp so
           in return (rm, reg, b'reg, b'mod, b'rm)
 
@@ -1016,6 +1023,14 @@ fpu opcode pfx ofs = do
                         (0, 5, _) -> r I_FSUBR [rm]
                         (0, 6, _) -> r I_FDIV [rm]
                         (0, 7, _) -> r I_FDIVR [rm]
+                        (2, 0, _) -> r I_FADD [rm]
+                        (2, 1, _) -> r I_FIMUL [rm]
+                        (2, 2, _) -> r I_FICOM [rm]
+                        (2, 3, _) -> r I_FICOMP [rm]
+                        (2, 4, _) -> r I_FISUB [rm]
+                        (2, 5, _) -> r I_FISUBR [rm]
+                        (2, 6, _) -> r I_FIDIV [rm]
+                        (2, 7, _) -> r I_FIDIVR [rm]
                         (4, 0, _) -> r I_FADD [rm]
                         (4, 1, _) -> r I_FMUL [rm]
                         (4, 2, _) -> r I_FCOM [rm]
@@ -1024,13 +1039,23 @@ fpu opcode pfx ofs = do
                         (4, 5, _) -> r I_FSUBR [rm]
                         (4, 6, _) -> r I_FDIV [rm]
                         (4, 7, _) -> r I_FDIVR [rm]
+                        (6, 0, _) -> r I_FADD [rm]
+                        (6, 1, _) -> r I_FIMUL [rm]
+                        (6, 2, _) -> r I_FICOM [rm]
+                        (6, 3, _) -> r I_FICOMP [rm]
+                        (6, 4, _) -> r I_FISUB [rm]
+                        (6, 5, _) -> r I_FISUBR [rm]
+                        (6, 6, _) -> r I_FIDIV [rm]
+                        (6, 7, _) -> r I_FIDIVR [rm]
+
                         (1, 0, _) -> r I_FLD [Op_Reg (RegFPU ST0), rm]
                         (1, 1, 3) -> if reg == 1 then r I_FXCH [] else r I_FXCH [Op_Reg (RegFPU ST0), rm]
                         (1, 1, _) -> r I_FXCH [Op_Reg (RegFPU ST0), rm]
                         (1, 2, 3) -> if reg == 0 then r I_FNOP [] else r I_FST [Op_Reg (RegFPU ST0), rm]
                         (1, 2, _) -> r I_FST [Op_Reg (RegFPU ST0), rm]
                         (1, 3, _) -> r I_FSTP [rm]
-                        (1, 4, _) -> r I_FLDENV [Op_Reg (RegFPU ST0), rm]
+                        (1, 4, _) -> r I_FLDENV [rm]
+
                         (7, 0, 3) -> r I_FFREEP [Op_Reg fpureg]
                         (7, 1, 3) -> r I_FXCH7 [Op_Reg fpureg]
                         (7, 2, 3) -> r I_FSTP8 [Op_Reg fpureg]
@@ -1053,15 +1078,16 @@ fpu opcode pfx ofs = do
                         (7, 7, _) -> r I_FISTP [rm]
                         _         -> fail "invalid"
 
-parseSib rex aw sib = let
-                     br = bits 0 3 sib
-                     ir = bits 3 3 sib
-                     ss = bits 6 2 sib
-                     sp = (case aw of 16 -> Reg16; 32 -> Reg32; 64 -> Reg64) RSP
-                     breg = selectreg 0 br aw rex
-                     ireg = selectreg 1 ir aw rex
-                     sf = case ss of { 0 -> 1; 1 -> 2; 2 -> 4; 3 -> 8 }
-                    in (breg, if ireg == sp then RegNone else ireg, sf)
+parseSib m dispSize rex aw sib = let
+                         br = bits 0 3 sib
+                         ir = bits 3 3 sib
+                         ss = bits 6 2 sib
+                         sp = (case aw of 16 -> Reg16; 32 -> Reg32; 64 -> Reg64) RSP
+                         breg = selectreg 0 br aw rex
+                         ireg = selectreg 1 ir aw rex
+                         sf = case ss of { 0 -> 1; 1 -> 2; 2 -> 4; 3 -> 8 }
+                    in case (m, br) of (0, 5) -> ((RegNone, if ireg == sp then RegNone else ireg, sf), Just 32)
+                                       _      -> ((breg, if ireg == sp then RegNone else ireg, sf), dispSize)
 
 selectreg rexBit reg opWidth rex = let
                 rvec' = case () of
@@ -1092,6 +1118,14 @@ opertext I_FSUB = "fsub"
 opertext I_FSUBR = "fsubr"
 opertext I_FDIV = "fdiv"
 opertext I_FDIVR = "fdivr"
+opertext I_FIADD = "fadd"
+opertext I_FIMUL = "fmul"
+opertext I_FICOM = "fcom"
+opertext I_FICOMP = "fcomp"
+opertext I_FISUB = "fsub"
+opertext I_FISUBR = "fsubr"
+opertext I_FIDIV = "fdiv"
+opertext I_FIDIVR = "fdivr"
 opertext I_ADD = "add"
 opertext I_OR  = "or"
 opertext I_ADC = "adc"
