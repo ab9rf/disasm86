@@ -11,6 +11,7 @@ import Data.Word (Word8, Word64)
 import Data.Maybe (catMaybes)
 import Data.List (intercalate, (\\), union)
 import Data.Bits ((.&.))
+import Data.Char (toLower)
 import Numeric (showHex)
 
 import Hdis86
@@ -113,7 +114,7 @@ makeTest' bs = let
         ref' = (if (last ref'' == ' ') then init else id) ref''
         last7 = reverse (take 7 (reverse ref'))
         ref = case last7 of "invalid" -> ""
-                            _         -> ref'
+                            _         -> map toLower ref'
     in Test bytes descr ref
 
 testdis t = intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble 0x1000 (bytes t)))))
@@ -210,6 +211,38 @@ statictests = map toBS [
     , "850c0d13131313131313131313"
     , "40850c0d13131313131313131313"
     , "2640850c0d13131313131313131313"
+    , "3196969696969696"
+    , "e43196969696969696"
+    , "dfe43196969696969696"
+    , "4cdfe43196969696969696"
+    , "2e4cdfe43196969696969696"
+    , "662e4cdfe43196969696969696"
+    , "67662e4cdfe43196969696969696"
+    , "f367662e4cdfe43196969696969696"
+    , "818caf7f7f7f7f2929292929"
+    , "4c818caf7f7f7f7f2929292929"
+    , "654c818caf7f7f7f7f2929292929"
+    , "f0654c818caf7f7f7f7f2929292929"
+    , "7aaaaaaaaaaaaaaaaa"
+    , "fc7aaaaaaaaaaaaaaaaa"
+    , "6dfc7aaaaaaaaaaaaaaaaa"
+    , "4b6dfc7aaaaaaaaaaaaaaaaa"
+    , "2e4b6dfc7aaaaaaaaaaaaaaaaa"
+    , "662e4b6dfc7aaaaaaaaaaaaaaaaa"
+    , "67662e4b6dfc7aaaaaaaaaaaaaaaaa"
+    , "7f7f7f7f9b9b9b9b9b9b9b"
+    , "8e7f7f7f7f9b9b9b9b9b9b9b"
+    , "b48e7f7f7f7f9b9b9b9b9b9b9b"
+    , "e9b48e7f7f7f7f9b9b9b9b9b9b9b"
+    , "44e9b48e7f7f7f7f9b9b9b9b9b9b9b"
+    , "cdcdcdcdcdcdcdcd"
+    , "82cdcdcdcdcdcdcdcd"
+    , "2482cdcdcdcdcdcdcdcd"
+    , "ff2482cdcdcdcdcdcdcdcd"
+    , "4dff2482cdcdcdcdcdcdcdcd"
+    , "264dff2482cdcdcdcdcdcdcdcd"
+    , "66264dff2482cdcdcdcdcdcdcdcd"
+    , "f366264dff2482cdcdcdcdcdcdcdcd"
     ]
 
 

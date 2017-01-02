@@ -69,8 +69,6 @@ data Operation =
       | I_FSTP8
       | I_FSTP9
       | I_FSTSW
-      | I_FSTDW
-      | I_FSTSG
       | I_FUCOMIP
       | I_FCOMIP
       | I_FILD
@@ -211,6 +209,7 @@ data Operand =
               }
       | Op_Reg Register
       | Op_Imm ImmediateU
+      | Op_Jmp ImmediateU
       | Op_Const Int
     deriving (Show, Eq)
 
@@ -249,11 +248,13 @@ textrep (Instruction p oper operands) =
     let t1 = tp ++ (opertext oper)
         t2 = intercalate ", " (map operandtext operands)
         tp = concat (map ((++" ").prefixtext) p)
-        ost = if ((not (null operands)
-                    && (isAmbiguousSizeInstr oper)
-                    && (all isAmbiguousSize (ambiSelect oper operands))))
-                then (operandsizespec (head operands)) ++ " "
+        a = (not (null operands)
+                                && (isAmbiguousSizeInstr oper)
+                                && (all isAmbiguousSize (ambiSelect oper operands)))
+        ost = if a
+                then (operandsizespec (head operands)) ++ " " ++ nf
                 else ""
+        nf = if (oper == I_JMP && a) then "near " else ""
       in case t2 of "" -> t1
                     _  -> t1 ++ " " ++ ost ++ t2
 
@@ -282,13 +283,12 @@ isAmbiguousSizeInstr I_JL = False
 isAmbiguousSizeInstr I_JGE = False
 isAmbiguousSizeInstr I_JLE = False
 isAmbiguousSizeInstr I_JG = False
-isAmbiguousSizeInstr I_JMP = False
-isAmbiguousSizeInstr I_CALL = False
 isAmbiguousSizeInstr I_ENTER = False
 isAmbiguousSizeInstr I_LOOP = False
 isAmbiguousSizeInstr I_LOOPE = False
 isAmbiguousSizeInstr I_LOOPNZ = False
 isAmbiguousSizeInstr I_JRCXZ = False
+isAmbiguousSizeInstr I_FBLD = False
 isAmbiguousSizeInstr _ = True
 
 prefixtext PrefixA32 = "a32"
@@ -332,6 +332,7 @@ operandtext (Op_Mem sz asz base idx sf ofs seg) =
 
      in "[" ++ so ++ str ++ "]"
 operandtext (Op_Imm i) = immediatetext i
+operandtext (Op_Jmp i) = immediatetext i
 operandtext (Op_Const i) = show i
 operandtext o = "!operand "++ (show o) ++ "!"
 
@@ -348,6 +349,7 @@ operandsizespec o =
 isAmbiguousSize (Op_Reg _) = False
 isAmbiguousSize (Op_Mem _ _ _ _ _ _ _) = True
 isAmbiguousSize (Op_Imm _) = True
+isAmbiguousSize (Op_Jmp _) = False
 isAmbiguousSize (Op_Const _ ) = True
 
 immediatetext (Immediate _ v) = "0x" ++ (showHex v "")
@@ -531,8 +533,10 @@ disassemble1' pfx ofs = do
         0x6a -> pushImm pfx 8
         0x6b -> imul3 pfx opWidth' 8
         0x6c -> datamov I_INSB pfx [] opWidth
-        0x6d -> let i = case opWidthIO of 32 -> I_INSD; 16 -> I_INSW
-                  in datamov i pfx [] opWidth
+        0x6d -> case (bits 3 1 <$> pfxRex pfx) of
+                    Just 1 -> fail "invalid"
+                    _      -> let i = case opWidthIO of 32 -> I_INSD; 16 -> I_INSB
+                                in datamov i pfx [] opWidth
         0x6e -> datamov I_OUTSB pfx [] opWidth
         0x6f -> let i = case opWidth of 64 -> I_OUTSQ; 32 -> I_OUTSD; 16 -> I_OUTSW
                   in datamov i pfx [] opWidth
@@ -710,8 +714,8 @@ disassemble1' pfx ofs = do
         0xfb -> simple I_STI pfx []
         0xfc -> simple I_CLD pfx []
         0xfd -> simple I_STD pfx []
-        0xfe -> grpfe pfx opWidth
-        0xff -> grpfe pfx opWidth
+        0xfe -> grpfe pfx opWidth bitW
+        0xff -> grpfe pfx opWidth bitW
 
         _ -> fail ("invalid opcode " ++ show opcode)
 
@@ -749,18 +753,20 @@ grpf6 pfx opWidth = do
                                        64 -> fromIntegral <$> getWord64le
                             return (Instruction ep I_TEST [rm, Op_Imm imm])
 
-grpfe pfx opWidth = do
-        (rm, _, op, mod, _) <- modrm pfx opWidth
-        let ep = emitPfx False True pfx
-            in case op of
-                0 -> return (Instruction ep I_INC [rm])
-                1 -> return (Instruction ep I_DEC [rm])
-                2 -> return (Instruction ep I_CALL [rm])
-                3 -> return (Instruction ep I_CALLF [rm])
-                4 -> if (mod == 3) then fail "invalid" else return (Instruction ep I_JMP [rm])
-                5 -> return (Instruction ep I_JMPF [rm])
-                6 -> if (opWidth == 8) then fail "invalid" else return (Instruction ep I_PUSH [rm])
-                7 -> fail "invalid"
+grpfe pfx opWidth bitW = do
+     md <- lookAhead getWord8
+     let op = bits 0 3 md
+         ep = emitPfx True True pfx
+        in case (bitW,op) of
+            (_,0) -> do (rm, _, op, mod, _) <- modrm pfx opWidth; return (Instruction ep I_INC [rm])
+            (_,1) -> do (rm, _, op, mod, _) <- modrm pfx opWidth; return (Instruction ep I_DEC [rm])
+            (1,2) -> do (rm, _, op, mod, _) <- modrm pfx 64; return (Instruction ep I_CALL [rm])
+            (1,2) -> do (rm, _, op, mod, _) <- modrm pfx 64; return (Instruction ep I_CALLF [rm])
+            (1,4) -> do (rm, _, op, mod, _) <- modrm pfx 64; if (mod == 3) then fail "invalid" else return (Instruction ep I_JMP [rm])
+            (1,5) -> do (rm, _, op, mod, _) <- modrm pfx 64; return (Instruction ep I_JMPF [rm])
+            (1,6) -> do (rm, _, op, mod, _) <- modrm pfx opWidth; return (Instruction ep I_PUSH [rm])
+            _     -> fail "invalid"
+
 
 grp50 i r opWidth pfx = let
         reg = selectreg 0 r opWidth (pfxRex pfx)
@@ -772,7 +778,7 @@ grp80 pfx opWidth immSize = do
         imm <- (Immediate immSize) <$> case immSize of 8  -> fromIntegral <$> getWord8
                                                        16 -> fromIntegral <$> getWord16le
                                                        32 -> fromIntegral <$> getWord32le
-                                                       64 -> fromIntegral <$> getWord64le
+                                                       64 -> fromIntegral <$> getWord32le
         let i = case op of
                     0 -> I_ADD
                     1 -> I_OR
@@ -958,22 +964,14 @@ datamov i pfx opl opwidth = let
                     (I_INSW, _)        -> []
                     (I_INSD, _)        -> []
                     (I_INSQ, _)        -> []
-                    (I_CMPSB, Just DS) -> []
-                    (I_CMPSW, Just DS) -> []
-                    (I_CMPSD, Just DS) -> []
-                    (I_CMPSQ, Just DS) -> []
-                    (I_CMPSB, Just ES) -> []
-                    (I_CMPSW, Just ES) -> []
-                    (I_CMPSD, Just ES) -> []
-                    (I_CMPSQ, Just ES) -> []
-                    (I_SCASB, Just DS) -> []
-                    (I_SCASW, Just DS) -> []
-                    (I_SCASD, Just DS) -> []
-                    (I_SCASQ, Just DS) -> []
-                    (I_SCASB, Just ES) -> []
-                    (I_SCASW, Just ES) -> []
-                    (I_SCASD, Just ES) -> []
-                    (I_SCASQ, Just ES) -> []
+                    (I_CMPSB, _)       -> []
+                    (I_CMPSW, _)       -> []
+                    (I_CMPSD, _)       -> []
+                    (I_CMPSQ, _)       -> []
+                    (I_SCASB, _)       -> []
+                    (I_SCASW, _)       -> []
+                    (I_SCASD, _)       -> []
+                    (I_SCASQ, _)       -> []
                     (I_MOVSB, Just SS) -> pe'
                     (I_MOVSW, Just SS) -> pe'
                     (I_MOVSD, Just SS) -> pe'
@@ -996,7 +994,7 @@ jmpcall i pfx ofs = let
             let iv = bits 0 64 (eip + disp)
                 imm = Immediate 64 iv
                 ep = (emitPfx True False pfx)
-              in return (Instruction ep i [Op_Imm imm])
+              in return (Instruction ep i [Op_Jmp imm])
 
 jshort i pfx ofs = do
             disp <- fromIntegral <$> getInt8
@@ -1048,7 +1046,7 @@ fpu opcode pfx ofs = do
                         (6, 6, _) -> r I_FIDIV [rm]
                         (6, 7, _) -> r I_FIDIVR [rm]
 
-                        (1, 0, _) -> r I_FLD [Op_Reg (RegFPU ST0), rm]
+                        (1, 0, _) -> r I_FLD [rm]
                         (1, 1, 3) -> if reg == 1 then r I_FXCH [] else r I_FXCH [Op_Reg (RegFPU ST0), rm]
                         (1, 1, _) -> r I_FXCH [Op_Reg (RegFPU ST0), rm]
                         (1, 2, 3) -> if reg == 0 then r I_FNOP [] else r I_FST [Op_Reg (RegFPU ST0), rm]
@@ -1062,9 +1060,7 @@ fpu opcode pfx ofs = do
                         (7, 3, 3) -> r I_FSTP9 [Op_Reg fpureg]
                         (7, 4, 3) -> case reg of
                                     0 -> r I_FSTSW [Op_Reg (Reg16 RAX)]
-                                    1 -> r I_FSTDW [Op_Reg (Reg16 RAX)]
-                                    2 -> r I_FSTSG [Op_Reg (Reg16 RAX)]
-                                    3 -> fail "invalid"
+                                    _ -> fail "invalid"
                         (7, 5, 3) -> r I_FUCOMIP [Op_Reg fpureg]
                         (7, 6, 3) -> r I_FCOMIP [Op_Reg fpureg]
                         (7, 7, 3) -> fail "invalid"
@@ -1118,14 +1114,14 @@ opertext I_FSUB = "fsub"
 opertext I_FSUBR = "fsubr"
 opertext I_FDIV = "fdiv"
 opertext I_FDIVR = "fdivr"
-opertext I_FIADD = "fadd"
-opertext I_FIMUL = "fmul"
-opertext I_FICOM = "fcom"
-opertext I_FICOMP = "fcomp"
-opertext I_FISUB = "fsub"
-opertext I_FISUBR = "fsubr"
-opertext I_FIDIV = "fdiv"
-opertext I_FIDIVR = "fdivr"
+opertext I_FIADD = "fiadd"
+opertext I_FIMUL = "fimul"
+opertext I_FICOM = "ficom"
+opertext I_FICOMP = "ficomp"
+opertext I_FISUB = "fisub"
+opertext I_FISUBR = "fisubr"
+opertext I_FIDIV = "fidiv"
+opertext I_FIDIVR = "fidivr"
 opertext I_ADD = "add"
 opertext I_OR  = "or"
 opertext I_ADC = "adc"
@@ -1155,8 +1151,6 @@ opertext I_FXCH7 = "fxch7"
 opertext I_FSTP8 = "fstp8"
 opertext I_FSTP9 = "fstp9"
 opertext I_FSTSW = "fstsw"
-opertext I_FSTDW = "fstdw"
-opertext I_FSTSG = "fstsg"
 opertext I_FUCOMIP = "fucomip"
 opertext I_FCOMIP = "fcomip"
 opertext I_FILD = "fild"
