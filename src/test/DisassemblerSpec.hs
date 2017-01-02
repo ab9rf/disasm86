@@ -25,7 +25,7 @@ spec = do
     describe "basic disassembly" $ do
 -- 0x0000: add [rax], al
         it "0000" $ D.disassemble 0x1000 (B.pack [0x00, 0x00]) `shouldBe`
-            ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0) Nothing
+            ([D.Instruction [] D.I_ADD [ D.Op_Mem 8 64 (D.Reg64 D.RAX) (D.RegNone) 0 (D.Immediate 0 0) Nothing
                                        , D.Op_Reg (D.Reg8 D.RAX D.HalfL)]]
             , B.empty)
     describe "static disassembly tests" $ do
@@ -125,6 +125,9 @@ statictests = map toBS [
     , "7f7f7f7fb6b6b6b6b6"
     , "817f7f7f7fb6b6b6b6b6"
     , "44817f7f7f7fb6b6b6b6b6"
+    , "6644817f7f7f7fb6b6b6b6b6"
+    , "6744817f7f7f7fb6b6b6b6b6"
+    , "676644817f7f7f7fb6b6b6b6b6"
     , "a144817f7f7f7fb6b6b6b6b6"
     , "42a144817f7f7f7fb6b6b6b6b6"
     , "6642a144817f7f7f7fb6b6b6b6b6"
@@ -151,6 +154,13 @@ statictests = map toBS [
     , "c7ca1e1e1e1e1e1e1e1e1e1e1e"
     , "3ec7ca1e1e1e1e1e1e1e1e1e1e1e"
     , "f33ec7ca1e1e1e1e1e1e1e1e1e1e1e"
+    , "f0673e496e2cab1313131313131313"
+    , "bcf1ffffffff9f9f9f9f"
+    , "2bbcf1ffffffff9f9f9f9f"
+    , "442bbcf1ffffffff9f9f9f9f"
+    , "66442bbcf1ffffffff9f9f9f9f"
+    , "6766442bbcf1ffffffff9f9f9f9f"
+    , "f36766442bbcf1ffffffff9f9f9f9f"
     ]
 
 

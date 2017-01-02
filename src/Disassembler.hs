@@ -371,12 +371,6 @@ disassemble1' pfx ofs = do
                 o' 1 Nothing      False   = 32
                 o' 1 (Just False) False   = 32
                 o' _ (Just True)  _       = 64
---         opWidthA = o' (fmap (\x -> (x .&. (bit 3)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
---             where
---                 o' (Just True)  _       = 64
---                 o' _            True    = 16
---                 o' Nothing      False   = 32
---                 o' (Just False) False   = 32
         opWidthA = o' (fmap (\x -> (x .&. (bit 3)) /= 0) (pfxRex pfx)) (pfxO16 pfx)
             where
                 o' _            False   = 64
@@ -753,7 +747,7 @@ grp80 pfx opWidth immSize = do
                     5 -> I_SUB
                     6 -> I_XOR
                     7 -> I_CMP
-            ep = emitPfx False True pfx
+            ep = emitPfx (opWidth /= 8) True pfx
           in return (Instruction ep i [rm, Op_Imm imm])
 
 movimm pfx opWidth = do
@@ -919,10 +913,13 @@ simple i pfx opl = let
     in return (Instruction ep i opl)
 
 datamov i pfx opl opwidth = let
-        pe' = (maybe [] ((:[]).PrefixSeg) (pfxSeg pfx))
-        pe = case i of I_OUTSB -> []
-                       _       -> pe
-        ep = (emitPfx (opwidth /= 8) False pfx)
+        seg = pfxSeg pfx
+        pe' = (maybe [] ((:[]).PrefixSeg) seg)
+        pe = case (i,seg) of
+                    (I_OUTSB, _)       -> []
+                    (I_CMPSW, Just DS) -> []
+                    _                  -> pe'
+        ep = (emitPfx (opwidth /= 8) False pfx) ++ pe
 
     in return (Instruction ep i opl)
 
