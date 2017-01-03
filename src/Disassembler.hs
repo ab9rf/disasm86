@@ -195,6 +195,8 @@ data Operation =
       | I_FIDIVR
       | I_FFREE
       | I_FRSTOR
+      | I_FCOM2
+      | I_SLDT
     deriving (Show, Eq)
 
 data Operand =
@@ -268,9 +270,11 @@ textrep (Instruction p oper operands) =
       in case t2 of "" -> t1
                     _  -> t1 ++ " " ++ t2
 
+ambiSelect I_RCR    = take 1
 ambiSelect I_RCL    = take 1
 ambiSelect I_ROL    = take 1
 ambiSelect I_ROR    = take 1
+ambiSelect I_SHL    = take 1
 ambiSelect I_MOVSXD = drop 1
 ambiSelect _        = id
 
@@ -300,6 +304,7 @@ isAmbiguousSizeInstr I_LOOPNZ = False
 isAmbiguousSizeInstr I_JRCXZ = False
 isAmbiguousSizeInstr I_FBLD = False
 isAmbiguousSizeInstr I_FLDENV = False
+isAmbiguousSizeInstr I_SLDT = False
 isAmbiguousSizeInstr _ = True
 
 prefixtext PrefixA32 = "a32"
@@ -444,7 +449,7 @@ disassemble1' pfx ofs = do
         0x0c -> opImm I_OR pfx 8
         0x0d -> opImm I_OR pfx opWidth
         0x0e -> fail "invalid"
--- TODO: 0x0f
+        0x0f -> grp0f pfx ofs
 
         0x10 -> op2 I_ADC pfx opWidth bitD
         0x11 -> op2 I_ADC pfx opWidth bitD
@@ -730,6 +735,19 @@ disassemble1' pfx ofs = do
 
         _ -> fail ("invalid opcode " ++ show opcode)
 
+grp0f pfx ofs = do
+    opcode2 <- getWord8
+    case opcode2 of
+        0x00 -> grp0f00 pfx ofs
+
+        _ -> fail "invalid"
+
+grp0f00 pfx ofs = do
+    rmb <- lookAhead getWord8
+    case bits 3 3 rmb of
+       0 -> do (rm, _, _, _, _) <- modrm pfx 16; let ep = emitPfx True True pfx in return (Instruction ep I_SLDT [rm])
+       _ -> fail "invalid"
+
 emitPfx noo16 noa32 pfx =
     (if (not noo16) && pfxO16 pfx then [PrefixO16] else []) ++
     (if (not noa32) && pfxA32 pfx then [PrefixA32] else []) ++
@@ -809,7 +827,7 @@ movimm pfx opWidth = do
                                        16 -> fromIntegral <$> getWord16le
                                        32 -> fromIntegral <$> getWord32le
                                        64 -> fromIntegral <$> getWord32le -- FIXME?
-                           let ep = emitPfx False False pfx
+                           let ep = emitPfx (opWidth /= 8) False pfx
                              in return (Instruction ep I_MOV [rm, Op_Imm imm])
                    _ -> fail "invalid"
 
@@ -832,7 +850,7 @@ xchg r opWidth pfx = let
         reg2 = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
         ep = emitPfx True False pfx
     in if (reg1 == reg2)
-         then return (Instruction ep (case (pfxRep pfx) of Nothing -> I_NOP; _ -> I_PAUSE) [])
+         then return (Instruction ep (case (pfxRep pfx) of (Just PrefixRep) -> I_PAUSE; _ -> I_NOP) [])
          else return (Instruction ep I_XCHG [Op_Reg reg1, Op_Reg reg2])
 
 movreg r pfx opWidth = do
@@ -885,7 +903,7 @@ movaddr pfx opWidth direction ofs = let
                 64 -> fromIntegral <$> getWord64le
                 32 -> fromIntegral <$> getWord32le
         let imm = Op_Mem opWidth aWidth RegNone RegNone 0 (Immediate aWidth disp) (pfxSeg pfx)
-            ep = (emitPfx (opWidth /= 8) True pfx)
+            ep = (emitPfx (opWidth /= 8) (opWidth /= 8) pfx) -- wack?
             reg = selectreg 0 0 opWidth (Nothing :: Maybe Word8)
             ops = case direction of
                                 0 -> [Op_Reg reg, imm]
@@ -1027,11 +1045,13 @@ jshort i pfx ofs = do
             let iv = bits 0 64 (eip + disp)
                 imm = Immediate 64 iv
                 ep = (emitPfx False False pfx)
-              in return (Instruction ep i [Op_Imm imm])
+              in return (Instruction ep i [Op_Jmp imm])
 
 fpu opcode pfx ofs = do
+            rmb <- lookAhead getWord8
             let set = bits 0 3 opcode
-                opWidth = case set of 3 -> 80; 4 -> 64; 5 -> 64; 6 -> 16; _ -> 32
+                op = bits 0 3 rmb
+                opWidth = case (set, op) of (3,_) -> 80; (4,_) -> 64; (5,_) -> 64; (6,_) -> 16; (7,7) -> 64; (7,5) -> 64; _ -> 32
              in do
                 (rm, _, op, mod, reg) <- modrm pfx opWidth
                 let ep = (emitPfx False True pfx)
@@ -1046,9 +1066,17 @@ fpu opcode pfx ofs = do
                         (0, 5, _) -> r I_FSUBR [rm]
                         (0, 6, _) -> r I_FDIV [rm]
                         (0, 7, _) -> r I_FDIVR [rm]
+
+                        (1, 0, _) -> r I_FLD [rm]
+                        (1, 1, 3) -> if reg == 1 then r I_FXCH [] else r I_FXCH [Op_Reg (RegFPU ST0), rm]
+                        (1, 1, _) -> r I_FXCH [Op_Reg (RegFPU ST0), rm]
                         (1, 2, _) -> r I_FST [rm]
+                        (1, 2, 3) -> if reg == 0 then r I_FNOP [] else r I_FST [Op_Reg (RegFPU ST0), rm]
                         (1, 3, _) -> r I_FSTP [rm]
-                        (2, 0, _) -> r I_FADD [rm]
+                        (1, 3, _) -> r I_FSTP [rm]
+                        (1, 4, _) -> r I_FLDENV [rm]
+
+                        (2, 0, _) -> r I_FIADD [rm]
                         (2, 1, _) -> r I_FIMUL [rm]
                         (2, 2, _) -> r I_FICOM [rm]
                         (2, 3, _) -> r I_FICOMP [rm]
@@ -1056,10 +1084,13 @@ fpu opcode pfx ofs = do
                         (2, 5, _) -> r I_FISUBR [rm]
                         (2, 6, _) -> r I_FIDIV [rm]
                         (2, 7, _) -> r I_FIDIVR [rm]
+
                         (3, 1, _) -> r I_FISTTP [rm]
                         (3, 7, _) -> r I_FSTP [rm]
+
                         (4, 0, _) -> r I_FADD [rm]
                         (4, 1, _) -> r I_FMUL [rm]
+                        (4, 2, 3) -> r I_FCOM2 [Op_Reg (fpureg)]
                         (4, 2, _) -> r I_FCOM [rm]
                         (4, 3, _) -> r I_FCOMP [rm]
                         (4, 4, _) -> r I_FSUB [rm]
@@ -1073,7 +1104,7 @@ fpu opcode pfx ofs = do
                         (5, 4, _) -> r I_FRSTOR [rm]
                         (5, 0, 3) -> r I_FFREE [rm]
 
-                        (6, 0, _) -> r I_FADD [rm]
+                        (6, 0, _) -> r I_FIADD [rm]
                         (6, 1, _) -> r I_FIMUL [rm]
                         (6, 2, _) -> r I_FICOM [rm]
                         (6, 3, _) -> r I_FICOMP [rm]
@@ -1082,31 +1113,23 @@ fpu opcode pfx ofs = do
                         (6, 6, _) -> r I_FIDIV [rm]
                         (6, 7, _) -> r I_FIDIVR [rm]
 
-                        (1, 0, _) -> r I_FLD [rm]
-                        (1, 1, 3) -> if reg == 1 then r I_FXCH [] else r I_FXCH [Op_Reg (RegFPU ST0), rm]
-                        (1, 1, _) -> r I_FXCH [Op_Reg (RegFPU ST0), rm]
-                        (1, 2, 3) -> if reg == 0 then r I_FNOP [] else r I_FST [Op_Reg (RegFPU ST0), rm]
-                        (1, 2, _) -> r I_FST [Op_Reg (RegFPU ST0), rm]
-                        (1, 3, _) -> r I_FSTP [rm]
-                        (1, 4, _) -> r I_FLDENV [rm]
-
                         (7, 0, 3) -> r I_FFREEP [Op_Reg fpureg]
+                        (7, 0, _) -> r I_FILD [rm]
                         (7, 1, 3) -> r I_FXCH7 [Op_Reg fpureg]
+                        (7, 1, _) -> r I_FISTTP [rm]
                         (7, 2, 3) -> r I_FSTP8 [Op_Reg fpureg]
+                        (7, 2, _) -> r I_FIST [rm]
                         (7, 3, 3) -> r I_FSTP9 [Op_Reg fpureg]
+                        (7, 3, _) -> r I_FISTP [rm]
                         (7, 4, 3) -> case reg of
                                     0 -> r I_FSTSW [Op_Reg (Reg16 RAX)]
                                     _ -> fail "invalid"
-                        (7, 5, 3) -> r I_FUCOMIP [Op_Reg fpureg]
-                        (7, 6, 3) -> r I_FCOMIP [Op_Reg fpureg]
-                        (7, 7, 3) -> fail "invalid"
-                        (7, 0, _) -> r I_FILD [rm]
-                        (7, 1, _) -> r I_FISTTP [rm]
-                        (7, 2, _) -> r I_FIST [rm]
-                        (7, 3, _) -> r I_FISTP [rm]
                         (7, 4, _) -> r I_FBLD [rm]
+                        (7, 5, 3) -> r I_FUCOMIP [Op_Reg fpureg]
                         (7, 5, _) -> r I_FILD [rm]
+                        (7, 6, 3) -> r I_FCOMIP [Op_Reg fpureg]
                         (7, 6, _) -> r I_FBSTP [rm]
+                        (7, 7, 3) -> fail "invalid"
                         (7, 7, _) -> r I_FISTP [rm]
                         _         -> fail "invalid"
 
@@ -1296,6 +1319,8 @@ opertext I_OUTSQ = "outsq"
 opertext I_INSQ = "insq"
 opertext I_FFREE = "ffree"
 opertext I_FRSTOR = "frstor"
+opertext I_FCOM2 = "fcom2"
+opertext I_SLDT = "sldt"
 --
 
 registertext :: Register -> String
