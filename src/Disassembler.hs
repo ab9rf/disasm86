@@ -52,6 +52,7 @@ dsRex :: DisassemblerState -> Maybe Prefix
 dsRex ds = find (\x -> case x of PrefixRex _ -> True; _ -> False) (dsPfx ds)
 dsO16 ds = PrefixO16 `elem` (dsPfx ds)
 dsA32 ds = PrefixA32 `elem` (dsPfx ds)
+dsRep ds = PrefixRep `elem` (dsPfx ds)
 dsSeg ds = listToMaybe (catMaybes (map (\p -> case p of (PrefixSeg s) -> Just s; _ -> Nothing) (dsPfx ds)))
 
 -- data PrefixState = PrefixState {
@@ -192,6 +193,39 @@ grp80 opcode ds = let
                     7 -> I_CMP
             ep = dsPfx ds
           in return (Instruction ep i [rm, Op_Imm imm])
+
+movsr opcode ds = do
+    (rm, _, sr, _, _) <- modrm ds (opOpWidth opcode ds)
+    let sreg = RegSeg ( [ES, CS, SS, DS, FS, GS, SR6, SR7] !! sr )
+        ops = case (bits 1 1 opcode) of
+                    0 -> [rm, Op_Reg sreg]
+                    _ -> [Op_Reg sreg, rm]
+        ep = dsPfx ds
+      in return (Instruction ep I_MOV ops)
+
+lea opcode ds = do
+    (rm, reg, _, mod, _) <- modrm' ds 64 (opOpWidth opcode ds) False
+    if mod == 3 then fail "invalid" else
+        let ops = [Op_Reg reg, rm]
+            ep = dsPfx ds
+          in return (Instruction ep I_LEA ops)
+
+pushpop i opcode ds = do
+    (rm, _, op, _, _) <- modrm ds 64
+    case op of 0 -> return (Instruction (dsPfx ds) i [rm])
+               _ -> fail "invalid"
+
+xchg opcode ds = let
+        opWidth = opOpWidth' opcode ds
+        reg1 = selectreg 0 (bits 0 3 opcode) opWidth (dsRex ds) False
+        reg2 = selectreg 0 0 opWidth (Nothing :: Maybe Prefix) False
+    in if (reg1 == reg2)
+         then return (Instruction (dsPfx ds) (if (dsRep ds) then I_PAUSE else I_NOP) [])
+         else return (Instruction (dsPfx ds) I_XCHG [Op_Reg reg1, Op_Reg reg2])
+
+sized i16 i32 i64 opcode ds =
+    let i = case opOpWidth' opcode ds of 64 -> i64; 32 -> i32; 16 -> i16
+    in return (Instruction (dsPfx ds) i [])
 
 applyPrefix :: DisassemblerSingle
 applyPrefix opcode ds = disassemble1' basicOpcodeMap (addPfx opcode ds)
@@ -342,33 +376,26 @@ basicOpcodeMap = Map.fromList [
         ), ( 0x89, op2 I_MOV
         ), ( 0x8a, op2 I_MOV
         ), ( 0x8b, op2 I_MOV
---         ), ( 0x8c, movsr pfx opWidth' bitD
---         ), ( 0x8d, lea pfx opWidth
---         ), ( 0x8e, movsr pfx opWidth' bitD
---         ), ( 0x8f, pushpop I_POP pfx opWidth
---         ), ( 0x90, xchg (bits 0 3 opcode) opWidth' pfx
---         ), ( 0x91, xchg (bits 0 3 opcode) opWidth' pfx
---         ), ( 0x92, xchg (bits 0 3 opcode) opWidth' pfx
---         ), ( 0x93, xchg (bits 0 3 opcode) opWidth' pfx
---         ), ( 0x94, xchg (bits 0 3 opcode) opWidth' pfx
---         ), ( 0x95, xchg (bits 0 3 opcode) opWidth' pfx
---         ), ( 0x96, xchg (bits 0 3 opcode) opWidth' pfx
---         ), ( 0x97, xchg (bits 0 3 opcode) opWidth' pfx
---         ), ( 0x98, let i = case opWidth' of 64 -> I_CDQE; 32 -> I_CWDE; 16 -> I_CBW
---                     ep = (emitPfx True False pfx)
---                  in return (Instruction ep i [])
---         ), ( 0x99, let i = case opWidth' of 64 -> I_CQO; 32 -> I_CDQ; 16 -> I_CWD
---                     ep = (emitPfx True False pfx)
---                  in return (Instruction ep i [])
---         ), ( 0x9a, fail "invalid"
---         ), ( 0x9b, simple I_WAIT pfx []
---         ), ( 0x9c, let ep = (emitPfx True False pfx)
---                  in return (Instruction ep I_PUSHFQ [])
---         ), ( 0x9d, let ep = (emitPfx True False pfx)
---                  in return (Instruction ep I_POPFQ [])
---         ), ( 0x9e, simple I_SAHF pfx []
---         ), ( 0x9f, simple I_LAHF pfx []
---
+        ), ( 0x8c, movsr
+        ), ( 0x8d, lea
+        ), ( 0x8e, movsr
+        ), ( 0x8f, pushpop I_POP
+        ), ( 0x90, xchg
+        ), ( 0x91, xchg
+        ), ( 0x92, xchg
+        ), ( 0x93, xchg
+        ), ( 0x94, xchg
+        ), ( 0x95, xchg
+        ), ( 0x96, xchg
+        ), ( 0x97, xchg
+        ), ( 0x98, sized I_CBW I_CWDE I_CDQE
+        ), ( 0x99, sized I_CWD I_CDQ I_CQO
+        ), ( 0x9a, invalid
+        ), ( 0x9b, simple I_WAIT []
+        ), ( 0x9c, simple I_PUSHFQ []
+        ), ( 0x9d, simple I_POPFQ []
+        ), ( 0x9e, simple I_SAHF []
+        ), ( 0x9f, simple I_LAHF []
 --         ), ( 0xa0, movaddr pfx opWidth bitD ofs
 --         ), ( 0xa1, movaddr pfx opWidth bitD ofs
 --         ), ( 0xa2, movaddr pfx opWidth bitD ofs
@@ -585,28 +612,6 @@ opcodeMap0f = Map.fromList [
 --                              in return (Instruction ep I_MOV [rm, Op_Imm imm])
 --                    _ -> fail "invalid"
 --
--- movsr pfx opWidth direction = do
---     (rm, _, sr, _, _) <- modrm pfx opWidth
---     let sreg = RegSeg ( [ES, CS, SS, DS, FS, GS, SR6, SR7] !! sr )
---         ops = case direction of
---                     0 -> [rm, Op_Reg sreg]
---                     _ -> [Op_Reg sreg, rm]
---         ep = emitPfx True True pfx
---       in return (Instruction ep I_MOV ops)
---
--- pushpop i pfx opWidth = do
---     (rm, _, op, _, _) <- modrm pfx 64
---     case op of 0 -> let ep = emitPfx True True pfx in return (Instruction ep i [rm])
---                _ -> fail "invalid"
---
--- xchg r opWidth pfx = let
---         reg1 = selectreg 0 r opWidth (dsRex ds) False
---         reg2 = selectreg 0 0 opWidth (Nothing :: Maybe Word8) False
---         ep = emitPfx True False pfx
---     in if (reg1 == reg2)
---          then return (Instruction ep (case (pfxRep pfx) of (Just PrefixRep) -> I_PAUSE; _ -> I_NOP) [])
---          else return (Instruction ep I_XCHG [Op_Reg reg1, Op_Reg reg2])
---
 -- movreg r pfx opWidth = do
 --     imm <- (Immediate opWidth) <$> case opWidth of 8  -> fromIntegral <$> getWord8
 --                                                    16 -> fromIntegral <$> getWord16le
@@ -624,13 +629,6 @@ opcodeMap0f = Map.fromList [
 --     let reg = selectreg 0 0 opWidth (Nothing :: Maybe Word8) False
 --         ep = emitPfx (opWidth /= 8) False pfx
 --       in return (Instruction ep I_TEST [Op_Reg reg, Op_Imm imm])
---
--- lea pfx opWidth = do
---     (rm, reg, _, mod, _) <- modrm' pfx 64 opWidth False
---     if mod == 3 then fail "invalid" else
---         let ops = [Op_Reg reg, rm]
---             ep = emitPfx (opWidth /= 8) True pfx
---           in return (Instruction ep I_LEA ops)
 --
 -- movaddr pfx opWidth direction ofs = let
 --     aWidth = case (dsA32 ds) of
