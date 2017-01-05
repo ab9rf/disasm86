@@ -100,16 +100,17 @@ fetchImm opWidth = Op_Imm <$> (case opWidth of 8  -> Immediate 8 . fromIntegral 
                                                64 -> Immediate 64 . fromIntegral <$> getWord32le)
 
 op2 :: Operation -> DisassemblerSingle
-op2 i opcode ds = let
-        pfx = dsPfx ds
-        opWidth = opOpWidth opcode ds
-        direction = bits 0 1 opcode
-    in do
+op2 i opcode ds = op2aux (opOpWidth opcode ds) (bits 1 1 opcode) i ds
+
+op2xt :: Operation -> DisassemblerSingle
+op2xt i opcode ds = op2aux (opOpWidth opcode ds) 0 i ds
+
+op2aux opWidth direction i ds = do
         (rm, reg, _, _, _) <- modrm ds opWidth
         let ops = case direction of
                         0 -> [rm, Op_Reg reg]
                         _ -> [Op_Reg reg, rm]
-            ep = pfx
+            ep = dsPfx ds
           in return (Instruction ep i ops)
 
 opImm :: Operation -> DisassemblerSingle
@@ -160,6 +161,37 @@ simple i opl opcode ds = let
         pfx = dsPfx ds
         ep = pfx
     in return (Instruction ep i opl)
+
+jshort :: Operation -> DisassemblerSingle
+jshort i opcode ds = do
+            disp <- fromIntegral <$> getInt8
+            eip <- (((dsOffset ds)+).fromIntegral <$> bytesRead)
+            let iv = bits 0 64 (eip + disp)
+                imm = Immediate 64 iv
+                ep = dsPfx ds
+              in return (Instruction ep i [Op_Jmp imm])
+
+grp80 :: DisassemblerSingle
+grp80 opcode ds = let
+        (opWidth, immSize) = case opcode of 0x80 -> (o, 8); 0x80 -> (o, o); 0x83 -> (o, 8)
+        o = opOpWidth opcode ds
+    in do
+        (rm, _, op, _, _) <- modrm ds opWidth
+        imm <- (Immediate immSize) <$> case immSize of 8  -> fromIntegral <$> getWord8
+                                                       16 -> fromIntegral <$> getWord16le
+                                                       32 -> fromIntegral <$> getWord32le
+                                                       64 -> fromIntegral <$> getWord32le
+        let i = case op of
+                    0 -> I_ADD
+                    1 -> I_OR
+                    2 -> I_ADC
+                    3 -> I_SBB
+                    4 -> I_AND
+                    5 -> I_SUB
+                    6 -> I_XOR
+                    7 -> I_CMP
+            ep = dsPfx ds
+          in return (Instruction ep i [rm, Op_Imm imm])
 
 applyPrefix :: DisassemblerSingle
 applyPrefix opcode ds = disassemble1' basicOpcodeMap (addPfx opcode ds)
@@ -278,42 +310,38 @@ basicOpcodeMap = Map.fromList [
         ), ( 0x69, imul3
         ), ( 0x6a, pushImm
         ), ( 0x6b, imul3
---         ), ( 0x6c, datamov I_INSB pfx [] opWidth
---         ), ( 0x6d, case (bits 3 1 <$> dsRex ds) of
---                     Just 1 -> fail "invalid"
---                     _      -> let i = case opWidthIO of 32 -> I_INSD; 16 -> I_INSW
---                                 in datamov i pfx [] opWidth
---         ), ( 0x6e, datamov I_OUTSB pfx [] opWidth
---         ), ( 0x6f, let i = case opWidth of 64 -> I_OUTSQ; 32 -> I_OUTSD; 16 -> I_OUTSW
---                   in datamov i pfx [] opWidth
---         ), ( 0x70, jshort I_JO pfx ofs
---         ), ( 0x71, jshort I_JNO pfx ofs
---         ), ( 0x72, jshort I_JB pfx ofs
---         ), ( 0x73, jshort I_JAE pfx ofs
---         ), ( 0x74, jshort I_JZ pfx ofs
---         ), ( 0x75, jshort I_JNZ pfx ofs
---         ), ( 0x76, jshort I_JBE pfx ofs
---         ), ( 0x77, jshort I_JA pfx ofs
---         ), ( 0x78, jshort I_JS pfx ofs
---         ), ( 0x79, jshort I_JNS pfx ofs
---         ), ( 0x7a, jshort I_JP pfx ofs
---         ), ( 0x7b, jshort I_JNP pfx ofs
---         ), ( 0x7c, jshort I_JL pfx ofs
---         ), ( 0x7d, jshort I_JGE pfx ofs
---         ), ( 0x7e, jshort I_JLE pfx ofs
---         ), ( 0x7f, jshort I_JG pfx ofs
---         ), ( 0x80, grp80 pfx opWidth 8
---         ), ( 0x81, grp80 pfx opWidth opWidth
---         ), ( 0x82, fail "invalid"
---         ), ( 0x83, grp80 pfx opWidth 8
---         ), ( 0x84, op2 I_TEST pfx opWidth 0
---         ), ( 0x85, op2 I_TEST pfx opWidth 0
---         ), ( 0x86, op2 I_XCHG pfx opWidth 0
---         ), ( 0x87, op2 I_XCHG pfx opWidth 0
---         ), ( 0x88, op2 I_MOV pfx 8 bitD
---         ), ( 0x89, op2 I_MOV pfx opWidth bitD
---         ), ( 0x8a, op2 I_MOV pfx 8 bitD
---         ), ( 0x8b, op2 I_MOV pfx opWidth bitD
+        ), ( 0x6c, simple I_INSB []
+        ), ( 0x6d, \opcode ds -> simple (if (dsO16 ds) then I_INSW else I_INSD) [] opcode ds
+        ), ( 0x6e, simple I_OUTSB []
+        ), ( 0x6f, \opcode ds -> simple (if (dsO16 ds) then I_OUTSW else I_OUTSD) [] opcode ds
+        ), ( 0x70, jshort I_JO
+        ), ( 0x71, jshort I_JNO
+        ), ( 0x72, jshort I_JB
+        ), ( 0x73, jshort I_JAE
+        ), ( 0x74, jshort I_JZ
+        ), ( 0x75, jshort I_JNZ
+        ), ( 0x76, jshort I_JBE
+        ), ( 0x77, jshort I_JA
+        ), ( 0x78, jshort I_JS
+        ), ( 0x79, jshort I_JNS
+        ), ( 0x7a, jshort I_JP
+        ), ( 0x7b, jshort I_JNP
+        ), ( 0x7c, jshort I_JL
+        ), ( 0x7d, jshort I_JGE
+        ), ( 0x7e, jshort I_JLE
+        ), ( 0x7f, jshort I_JG
+        ), ( 0x80, grp80
+        ), ( 0x81, grp80
+        ), ( 0x82, invalid
+        ), ( 0x83, grp80
+        ), ( 0x84, op2xt I_TEST
+        ), ( 0x85, op2xt I_TEST
+        ), ( 0x86, op2xt I_XCHG
+        ), ( 0x87, op2xt I_XCHG
+        ), ( 0x88, op2 I_MOV
+        ), ( 0x89, op2 I_MOV
+        ), ( 0x8a, op2 I_MOV
+        ), ( 0x8b, op2 I_MOV
 --         ), ( 0x8c, movsr pfx opWidth' bitD
 --         ), ( 0x8d, lea pfx opWidth
 --         ), ( 0x8e, movsr pfx opWidth' bitD
@@ -545,23 +573,6 @@ opcodeMap0f = Map.fromList [
 --             _     -> fail "invalid"
 --
 --
--- grp80 pfx opWidth immSize = do
---         (rm, _, op, _, _) <- modrm pfx opWidth
---         imm <- (Immediate immSize) <$> case immSize of 8  -> fromIntegral <$> getWord8
---                                                        16 -> fromIntegral <$> getWord16le
---                                                        32 -> fromIntegral <$> getWord32le
---                                                        64 -> fromIntegral <$> getWord32le
---         let i = case op of
---                     0 -> I_ADD
---                     1 -> I_OR
---                     2 -> I_ADC
---                     3 -> I_SBB
---                     4 -> I_AND
---                     5 -> I_SUB
---                     6 -> I_XOR
---                     7 -> I_CMP
---             ep = emitPfx (opWidth /= 8) True pfx
---           in return (Instruction ep i [rm, Op_Imm imm])
 --
 -- movimm pfx opWidth = do
 --         (rm, _, op, _, _) <- modrm pfx opWidth
@@ -709,14 +720,6 @@ opcodeMap0f = Map.fromList [
 --             let iv = bits 0 64 (eip + disp)
 --                 imm = Immediate 64 iv
 --                 ep = (emitPfx True False pfx)
---               in return (Instruction ep i [Op_Jmp imm])
---
--- jshort i pfx ofs = do
---             disp <- fromIntegral <$> getInt8
---             eip <- ((ofs+).fromIntegral <$> bytesRead)
---             let iv = bits 0 64 (eip + disp)
---                 imm = Immediate 64 iv
---                 ep = (emitPfx False False pfx)
 --               in return (Instruction ep i [Op_Jmp imm])
 --
 -- fpu opcode pfx ofs = do

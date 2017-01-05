@@ -80,6 +80,7 @@ prefixtext PrefixRepNE = "repne"
 prefixtext PrefixRep = "rep"
 prefixtext PrefixLock = "lock"
 prefixtext (PrefixSeg r) = (registertext.RegSeg) r
+prefixtext (PrefixRex x) = "rex " ++ (showHex x "")
 
 operandtext :: Operand -> String
 operandtext (Op_Near o@(Op_Mem _ _ _ _ _ _ _)) = "near " ++ (operandtext o)
