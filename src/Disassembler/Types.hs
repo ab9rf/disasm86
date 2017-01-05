@@ -29,6 +29,7 @@ data Prefix =
     | PrefixRep
     | PrefixLock
     | PrefixSeg SReg
+    | PrefixRex Word8
     deriving (Show, Eq)
 
 data Operation =
