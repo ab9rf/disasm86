@@ -5,6 +5,7 @@ import Test.Hspec
 import Test.QuickCheck hiding ((.&.))
 
 import qualified Disassembler as D
+import qualified Disassembler.TextRep.Intel as DTI
 import qualified Data.ByteString.Lazy as B
 
 import Data.Word (Word8, Word64)
@@ -126,7 +127,7 @@ makeTest' bs = let
                                        _         -> (map toLower ref')
       in Test bytes descr ref
 
-testdis t = intercalate "\n" (map D.textrep (take 1 (fst (D.disassemble 0x1000 (bytes t)))))
+testdis t = intercalate "\n" (map DTI.textrep (take 1 (fst (D.disassemble 0x1000 (bytes t)))))
 
 ----
 
