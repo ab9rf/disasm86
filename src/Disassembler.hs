@@ -178,10 +178,7 @@ grp80 opcode ds = let
         o = opOpWidth opcode ds
     in do
         (rm, _, op, _, _) <- modrm ds opWidth
-        imm <- (Immediate immSize) <$> case immSize of 8  -> fromIntegral <$> getWord8
-                                                       16 -> fromIntegral <$> getWord16le
-                                                       32 -> fromIntegral <$> getWord32le
-                                                       64 -> fromIntegral <$> getWord32le
+        imm <- fetchImm immSize
         let i = case op of
                     0 -> I_ADD
                     1 -> I_OR
@@ -192,7 +189,7 @@ grp80 opcode ds = let
                     6 -> I_XOR
                     7 -> I_CMP
             ep = dsPfx ds
-          in return (Instruction ep i [rm, Op_Imm imm])
+          in return (Instruction ep i [rm, imm])
 
 movsr opcode ds = do
     (rm, _, sr, _, _) <- modrm ds (opOpWidth opcode ds)
@@ -226,6 +223,43 @@ xchg opcode ds = let
 sized i16 i32 i64 opcode ds =
     let i = case opOpWidth' opcode ds of 64 -> i64; 32 -> i32; 16 -> i16
     in return (Instruction (dsPfx ds) i [])
+
+movaddr opcode ds = let
+    aWidth = case (dsA32 ds) of
+                 (True)  -> 32
+                 (False) -> 64
+    opWidth = opOpWidth opcode ds
+    direction = bits 1 1 opcode
+     in do
+        disp <- case aWidth of
+                64 -> fromIntegral <$> getWord64le
+                32 -> fromIntegral <$> getWord32le
+        let imm = Op_Mem opWidth aWidth RegNone RegNone 0 (Immediate aWidth disp) (dsSeg ds)
+            ep = dsPfx ds
+            reg = selectreg 0 0 opWidth (Nothing :: Maybe Prefix) False
+            ops = case direction of
+                                0 -> [Op_Reg reg, imm]
+                                _ -> [imm, Op_Reg reg]
+          in return (Instruction ep I_MOV ops)
+
+testRax opcode ds = let opWidth = opOpWidth opcode ds in do
+    imm <- fetchImm opWidth
+    let reg = selectreg 0 0 opWidth (Nothing :: Maybe Prefix) False
+        ep = dsPfx ds
+      in return (Instruction ep I_TEST [Op_Reg reg, imm])
+
+movreg opcode ds = let
+        r = bits 0 3 opcode
+        opWidth = case (bits 3 1 opcode) of 0 -> 8; _ -> opOpWidth' opcode ds
+        reg = selectreg 0 r opWidth (dsRex ds) False
+        ep = dsPfx ds
+    in do
+        imm <- (Immediate opWidth) <$> case opWidth of 8  -> fromIntegral <$> getWord8
+                                                       16 -> fromIntegral <$> getWord16le
+                                                       32 -> fromIntegral <$> getWord32le
+                                                       64 -> fromIntegral <$> getWord64le
+        return (Instruction ep I_MOV [Op_Reg reg, Op_Imm imm])
+
 
 applyPrefix :: DisassemblerSingle
 applyPrefix opcode ds = disassemble1' basicOpcodeMap (addPfx opcode ds)
@@ -396,43 +430,38 @@ basicOpcodeMap = Map.fromList [
         ), ( 0x9d, simple I_POPFQ []
         ), ( 0x9e, simple I_SAHF []
         ), ( 0x9f, simple I_LAHF []
---         ), ( 0xa0, movaddr pfx opWidth bitD ofs
---         ), ( 0xa1, movaddr pfx opWidth bitD ofs
---         ), ( 0xa2, movaddr pfx opWidth bitD ofs
---         ), ( 0xa3, movaddr pfx opWidth bitD ofs
---         ), ( 0xa4, datamov I_MOVSB pfx [] opWidth
---         ), ( 0xa5, let i = case opWidth' of 64 -> I_MOVSQ; 32 -> I_MOVSD; 16 -> I_MOVSW
---                   in datamov i pfx [] opWidth
---         ), ( 0xa6, datamov I_CMPSB pfx [] opWidth
---         ), ( 0xa7, let i = case opWidth' of 64 -> I_CMPSQ; 32 -> I_CMPSD; 16 -> I_CMPSW
---                   in datamov i pfx [] opWidth
---         ), ( 0xa8, testRax pfx opWidth
---         ), ( 0xa9, testRax pfx opWidth
---         ), ( 0xaa, datamov I_STOSB pfx [] opWidth
---         ), ( 0xab, let i = case opWidth' of 64 -> I_STOSQ; 32 -> I_STOSD; 16 -> I_STOSW
---                     in datamov i pfx [] opWidth
---         ), ( 0xac, datamov I_LODSB pfx [] opWidth
---         ), ( 0xad, let i = case opWidth' of 64 -> I_LODSQ; 32 -> I_LODSD; 16 -> I_LODSW
---                     in datamov i pfx [] opWidth
---         ), ( 0xae, datamov I_SCASB pfx [] opWidth
---         ), ( 0xaf, let i = case opWidth' of 64 -> I_SCASQ; 32 -> I_SCASD; 16 -> I_SCASW
---                     in datamov i pfx [] opWidth
---         ), ( 0xb0, movreg (bits 0 3 opcode) pfx 8
---         ), ( 0xb1, movreg (bits 0 3 opcode) pfx 8
---         ), ( 0xb2, movreg (bits 0 3 opcode) pfx 8
---         ), ( 0xb3, movreg (bits 0 3 opcode) pfx 8
---         ), ( 0xb4, movreg (bits 0 3 opcode) pfx 8
---         ), ( 0xb5, movreg (bits 0 3 opcode) pfx 8
---         ), ( 0xb6, movreg (bits 0 3 opcode) pfx 8
---         ), ( 0xb7, movreg (bits 0 3 opcode) pfx 8
---         ), ( 0xb8, movreg (bits 0 3 opcode) pfx opWidth'
---         ), ( 0xb9, movreg (bits 0 3 opcode) pfx opWidth'
---         ), ( 0xba, movreg (bits 0 3 opcode) pfx opWidth'
---         ), ( 0xbb, movreg (bits 0 3 opcode) pfx opWidth'
---         ), ( 0xbc, movreg (bits 0 3 opcode) pfx opWidth'
---         ), ( 0xbd, movreg (bits 0 3 opcode) pfx opWidth'
---         ), ( 0xbe, movreg (bits 0 3 opcode) pfx opWidth'
---         ), ( 0xbf, movreg (bits 0 3 opcode) pfx opWidth'
+        ), ( 0xa0, movaddr
+        ), ( 0xa1, movaddr
+        ), ( 0xa2, movaddr
+        ), ( 0xa3, movaddr
+        ), ( 0xa4, simple I_MOVSB []
+        ), ( 0xa5, sized I_MOVSW I_MOVSD I_MOVSQ
+        ), ( 0xa6, simple I_CMPSB []
+        ), ( 0xa7, sized I_CMPSW I_CMPSD I_CMPSQ
+        ), ( 0xa8, testRax
+        ), ( 0xa9, testRax
+        ), ( 0xaa, simple I_STOSB []
+        ), ( 0xab, sized I_STOSW I_STOSD I_STOSQ
+        ), ( 0xac, simple I_LODSB []
+        ), ( 0xad, sized I_LODSW I_LODSD I_LODSQ
+        ), ( 0xae, simple I_SCASB []
+        ), ( 0xaf, sized I_SCASW I_SCASD I_SCASQ
+        ), ( 0xb0, movreg
+        ), ( 0xb1, movreg
+        ), ( 0xb2, movreg
+        ), ( 0xb3, movreg
+        ), ( 0xb4, movreg
+        ), ( 0xb5, movreg
+        ), ( 0xb6, movreg
+        ), ( 0xb7, movreg
+        ), ( 0xb8, movreg
+        ), ( 0xb9, movreg
+        ), ( 0xba, movreg
+        ), ( 0xbb, movreg
+        ), ( 0xbc, movreg
+        ), ( 0xbd, movreg
+        ), ( 0xbe, movreg
+        ), ( 0xbf, movreg
 --         ), ( 0xc0, shiftrot opWidth pfx
 --         ), ( 0xc1, shiftrot opWidth pfx
 --         ), ( 0xc2, do  i <- Immediate 16 <$> fromIntegral <$> getWord16le
@@ -611,40 +640,6 @@ opcodeMap0f = Map.fromList [
 --                            let ep = emitPfx (opWidth /= 8) False pfx
 --                              in return (Instruction ep I_MOV [rm, Op_Imm imm])
 --                    _ -> fail "invalid"
---
--- movreg r pfx opWidth = do
---     imm <- (Immediate opWidth) <$> case opWidth of 8  -> fromIntegral <$> getWord8
---                                                    16 -> fromIntegral <$> getWord16le
---                                                    32 -> fromIntegral <$> getWord32le
---                                                    64 -> fromIntegral <$> getWord64le
---     let reg = selectreg 0 r opWidth (dsRex ds) False
---         ep = emitPfx (opWidth /= 8) False pfx
---       in return (Instruction ep I_MOV [Op_Reg reg, Op_Imm imm])
---
--- testRax pfx opWidth = do
---     imm <- (Immediate opWidth) <$> case opWidth of 8  -> fromIntegral <$> getWord8
---                                                    16 -> fromIntegral <$> getWord16le
---                                                    32 -> fromIntegral <$> getWord32le
---                                                    64 -> fromIntegral <$> getWord32le
---     let reg = selectreg 0 0 opWidth (Nothing :: Maybe Word8) False
---         ep = emitPfx (opWidth /= 8) False pfx
---       in return (Instruction ep I_TEST [Op_Reg reg, Op_Imm imm])
---
--- movaddr pfx opWidth direction ofs = let
---     aWidth = case (dsA32 ds) of
---                  (True)  -> 32
---                  (False) -> 64
---      in do
---         disp <- case aWidth of
---                 64 -> fromIntegral <$> getWord64le
---                 32 -> fromIntegral <$> getWord32le
---         let imm = Op_Mem opWidth aWidth RegNone RegNone 0 (Immediate aWidth disp) (pfxSeg pfx)
---             ep = (emitPfx (opWidth /= 8) (opWidth /= 8) pfx) -- wack?
---             reg = selectreg 0 0 opWidth (Nothing :: Maybe Word8) False
---             ops = case direction of
---                                 0 -> [Op_Reg reg, imm]
---                                 _ -> [imm, Op_Reg reg]
---           in return (Instruction ep I_MOV ops)
 --
 -- shiftrot opWidth pfx = do
 --         (rm, _, op, _, _) <- modrm pfx opWidth
