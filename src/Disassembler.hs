@@ -260,6 +260,53 @@ movreg opcode ds = let
                                                        64 -> fromIntegral <$> getWord64le
         return (Instruction ep I_MOV [Op_Reg reg, Op_Imm imm])
 
+shiftrot opcode ds = let opWidth = opOpWidth opcode ds
+    in do
+        (rm, _, op, _, _) <- modrm ds opWidth
+        imm <- (Immediate 8 . fromIntegral) <$> getWord8
+        shiftrot' ds op rm (Op_Imm imm) opWidth
+
+shiftrot1 op2 opcode ds = let opWidth = opOpWidth opcode ds
+    in do
+        (rm, _, op, _, _) <- modrm ds opWidth
+        shiftrot' ds op rm op2 opWidth
+
+shiftrot' ds op rm op2 opWidth =
+        let i = case op of
+                    0 -> I_ROL
+                    1 -> I_ROR
+                    2 -> I_RCL
+                    3 -> I_RCR
+                    4 -> I_SHL
+                    5 -> I_SHR
+                    6 -> I_SHL
+                    7 -> I_SAR
+            ep = dsPfx ds
+          in return (Instruction ep i [rm, op2])
+
+ret opcode ds = do
+    i <- Immediate 16 <$> fromIntegral <$> getWord16le
+    simple I_RET [Op_Imm i] opcode ds
+
+retf opcode ds = do
+    i <- Immediate 16 <$> fromIntegral <$> getWord16le
+    simple I_RETF [Op_Imm i] opcode ds
+
+movimm opcode ds = let opWidth = opOpWidth opcode ds
+    in do
+        (rm, _, op, _, _) <- modrm ds opWidth
+        case op of 0 -> do imm <- fetchImm opWidth
+                           return (Instruction (dsPfx ds) I_MOV [rm, imm])
+                   _ -> fail "invalid"
+
+enter opcode ds = do
+    op1 <- Immediate 16 <$> fromIntegral <$> getWord16le
+    op2 <- Immediate 8 <$> fromIntegral <$> getWord8
+    simple I_ENTER [Op_Imm op1, Op_Imm op2] opcode ds
+
+int opcode ds = do
+    op1 <- Immediate 8 <$> fromIntegral <$> getWord8
+    simple I_INT [Op_Imm op1] opcode ds
 
 applyPrefix :: DisassemblerSingle
 applyPrefix opcode ds = disassemble1' basicOpcodeMap (addPfx opcode ds)
@@ -462,37 +509,30 @@ basicOpcodeMap = Map.fromList [
         ), ( 0xbd, movreg
         ), ( 0xbe, movreg
         ), ( 0xbf, movreg
---         ), ( 0xc0, shiftrot opWidth pfx
---         ), ( 0xc1, shiftrot opWidth pfx
---         ), ( 0xc2, do  i <- Immediate 16 <$> fromIntegral <$> getWord16le
---                     simple I_RET pfx [Op_Imm i]
---         ), ( 0xc3, simple I_RET pfx []
---         ), ( 0xc4, fail "invalid"
---         ), ( 0xc5, fail "invalid"
---         ), ( 0xc6, movimm pfx opWidth
---         ), ( 0xc7, movimm pfx opWidth
---         ), ( 0xc8, do  op1 <- fromIntegral <$> getWord16le
---                     op2 <- fromIntegral <$> getWord8
---                     simple I_ENTER pfx [Op_Imm (Immediate 16 op1), Op_Imm (Immediate 8 op2)]
---         ), ( 0xc9, simple I_LEAVE pfx []
---         ), ( 0xca, do op1 <- fromIntegral <$> getWord16le
---                    simple I_RETF pfx [Op_Imm (Immediate 16 op1)]
---         ), ( 0xcb, simple I_RETF pfx []
---         ), ( 0xcc, simple I_INT3 pfx []
---         ), ( 0xcd, do op1 <- fromIntegral <$> getWord8
---                    simple I_INT pfx [Op_Imm (Immediate 8 op1)]
---         ), ( 0xce, fail "invalid"
---         ), ( 0xcf, let i = case opWidth' of 64 -> I_IRETQ; 32 -> I_IRETD; 16 -> I_IRETW
---                     ep = (emitPfx True False pfx)
---                   in return (Instruction ep i [])
---         ), ( 0xd0, shiftrot1 opWidth pfx (Op_Const 1)
---         ), ( 0xd1, shiftrot1 opWidth pfx (Op_Const 1)
---         ), ( 0xd2, shiftrot1 opWidth pfx (Op_Reg (Reg8 RCX HalfL))
---         ), ( 0xd3, shiftrot1 opWidth pfx (Op_Reg (Reg8 RCX HalfL))
---         ), ( 0xd4, fail "invalid"
---         ), ( 0xd5, fail "invalid"
---         ), ( 0xd6, fail "invalid"
---         ), ( 0xd7, simple I_XLATB pfx []
+        ), ( 0xc0, shiftrot
+        ), ( 0xc1, shiftrot
+        ), ( 0xc2, ret
+        ), ( 0xc3, simple I_RET []
+        ), ( 0xc4, invalid
+        ), ( 0xc5, invalid
+        ), ( 0xc6, movimm
+        ), ( 0xc7, movimm
+        ), ( 0xc8, enter
+        ), ( 0xc9, simple I_LEAVE []
+        ), ( 0xca, retf
+        ), ( 0xcb, simple I_RETF []
+        ), ( 0xcc, simple I_INT3 []
+        ), ( 0xcd, int
+        ), ( 0xce, invalid
+        ), ( 0xcf, sized I_IRETW I_IRETD I_IRETQ
+        ), ( 0xd0, shiftrot1 (Op_Const 1)
+        ), ( 0xd1, shiftrot1 (Op_Const 1)
+        ), ( 0xd2, shiftrot1 (Op_Reg (Reg8 RCX HalfL))
+        ), ( 0xd3, shiftrot1 (Op_Reg (Reg8 RCX HalfL))
+        ), ( 0xd4, invalid
+        ), ( 0xd5, invalid
+        ), ( 0xd6, invalid
+        ), ( 0xd7, simple I_XLATB []
 --         ), ( 0xd8, fpu opcode pfx ofs
 --         ), ( 0xd9, fpu opcode pfx ofs
 --         ), ( 0xda, fpu opcode pfx ofs
@@ -501,10 +541,10 @@ basicOpcodeMap = Map.fromList [
 --         ), ( 0xdd, fpu opcode pfx ofs
 --         ), ( 0xde, fpu opcode pfx ofs
 --         ), ( 0xdf, fpu opcode pfx ofs
---         ), ( 0xe0, jshort I_LOOPNZ pfx ofs
---         ), ( 0xe1, jshort I_LOOPE pfx ofs
---         ), ( 0xe2, jshort I_LOOP pfx ofs
---         ), ( 0xe3, jshort I_JRCXZ pfx ofs
+        ), ( 0xe0, jshort I_LOOPNZ
+        ), ( 0xe1, jshort I_LOOPE
+        ), ( 0xe2, jshort I_LOOP
+        ), ( 0xe3, jshort I_JRCXZ
 --         ), ( 0xe4, do op1 <- Op_Imm <$> Immediate 8 <$> fromIntegral <$> getWord8
 --                    inout pfx opWidthIO bitD op1
 --         ), ( 0xe5, do op1 <- Op_Imm <$> Immediate 8 <$> fromIntegral <$> getWord8
@@ -515,26 +555,26 @@ basicOpcodeMap = Map.fromList [
 --                    inout pfx opWidthIO bitD op1
 --         ), ( 0xe8, jmpcall I_CALL pfx ofs
 --         ), ( 0xe9, jmpcall I_JMP pfx ofs
---         ), ( 0xea, fail "invalid"
---         ), ( 0xeb, jshort I_JMP pfx ofs
+        ), ( 0xea, invalid
+        ), ( 0xeb, jshort I_JMP
 --         ), ( 0xec, inout pfx opWidthIO bitD (Op_Reg (Reg16 RDX))
 --         ), ( 0xed, inout pfx opWidthIO bitD (Op_Reg (Reg16 RDX))
 --         ), ( 0xee, inout pfx opWidthIO bitD (Op_Reg (Reg16 RDX))
 --         ), ( 0xef, inout pfx opWidthIO bitD (Op_Reg (Reg16 RDX))
---         ), ( 0xf0, disassemble1' (pfx { pfxLock = True }) ofs
---         ), ( 0xf1, simple I_INT1 pfx []
---         ), ( 0xf2, disassemble1' (pfx { pfxRep = Just PrefixRepNE }) ofs
---         ), ( 0xf3, disassemble1' (pfx { pfxRep = Just PrefixRep }) ofs
---         ), ( 0xf4, simple I_HLT pfx []
---         ), ( 0xf5, simple I_CMC pfx []
+        ), ( 0xf0, applyPrefix
+        ), ( 0xf1, simple I_INT1 []
+        ), ( 0xf2, applyPrefix
+        ), ( 0xf3, applyPrefix
+        ), ( 0xf4, simple I_HLT []
+        ), ( 0xf5, simple I_CMC []
 --         ), ( 0xf6, grpf6 pfx opWidth
 --         ), ( 0xf7, grpf6 pfx opWidth
---         ), ( 0xf8, simple I_CLC pfx []
---         ), ( 0xf9, simple I_STC pfx []
---         ), ( 0xfa, simple I_CLI pfx []
---         ), ( 0xfb, simple I_STI pfx []
---         ), ( 0xfc, simple I_CLD pfx []
---         ), ( 0xfd, simple I_STD pfx []
+        ), ( 0xf8, simple I_CLC []
+        ), ( 0xf9, simple I_STC []
+        ), ( 0xfa, simple I_CLI []
+        ), ( 0xfb, simple I_STI []
+        ), ( 0xfc, simple I_CLD []
+        ), ( 0xfd, simple I_STD []
 --         ), ( 0xfe, grpfe pfx opWidth bitW
 --         ), ( 0xff, grpfe pfx opWidth bitW
         ) ]
@@ -630,39 +670,7 @@ opcodeMap0f = Map.fromList [
 --
 --
 --
--- movimm pfx opWidth = do
---         (rm, _, op, _, _) <- modrm pfx opWidth
---         case op of 0 -> do imm <- (Immediate opWidth) <$> case opWidth of
---                                        8  -> fromIntegral <$> getWord8
---                                        16 -> fromIntegral <$> getWord16le
---                                        32 -> fromIntegral <$> getWord32le
---                                        64 -> fromIntegral <$> getWord32le -- FIXME?
---                            let ep = emitPfx (opWidth /= 8) False pfx
---                              in return (Instruction ep I_MOV [rm, Op_Imm imm])
---                    _ -> fail "invalid"
 --
--- shiftrot opWidth pfx = do
---         (rm, _, op, _, _) <- modrm pfx opWidth
---         imm <- (Immediate 8 . fromIntegral) <$> getWord8
---         shiftrot' pfx op rm (Op_Imm imm) opWidth
---
--- shiftrot1 opWidth pfx op2 = do
---         (rm, _, op, _, _) <- modrm pfx opWidth
---         shiftrot' pfx op rm op2 opWidth
---
--- shiftrot' pfx op rm op2 opWidth =
---         let i = case op of
---                     0 -> I_ROL
---                     1 -> I_ROR
---                     2 -> I_RCL
---                     3 -> I_RCR
---                     4 -> I_SHL
---                     5 -> I_SHR
---                     6 -> I_SHL
---                     7 -> I_SAR
---             ep = emitPfx (opWidth /= 8) True pfx
---           in return (Instruction ep i [rm, op2])
-
 -- datamov i pfx opl opwidth = let
 --         seg = pfxSeg pfx
 --         pe' = (maybe [] ((:[]).PrefixSeg) seg)
