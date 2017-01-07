@@ -627,9 +627,9 @@ basicOpcodeMap = Map.fromList [
         ), ( 0x6a, pushImm
         ), ( 0x6b, imul3
         ), ( 0x6c, simple I_INSB []
-        ), ( 0x6d, \opcode ds -> simple (if (dsO16 ds) then I_INSW else I_INSD) [] opcode ds
+        ), ( 0x6d, sized I_INSW I_INSD I_INSQ
         ), ( 0x6e, simple I_OUTSB []
-        ), ( 0x6f, \opcode ds -> simple (if (dsO16 ds) then I_OUTSW else I_OUTSD) [] opcode ds
+        ), ( 0x6f, sized I_OUTSW I_OUTSD I_OUTSQ
         ), ( 0x70, jshort I_JO
         ), ( 0x71, jshort I_JNO
         ), ( 0x72, jshort I_JB
