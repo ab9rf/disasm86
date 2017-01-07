@@ -34,6 +34,8 @@ textrep i@(Instruction p oper operands) =
                     _  -> t1 ++ " " ++ t2
 
 pfxFilter _ (PrefixRex _) = False
+pfxFilter (Instruction _ _ ((Op_Reg (Reg16 _)):_)) PrefixO16 = False
+pfxFilter (Instruction _ _ (_:(Op_Reg (Reg16 _)):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ ((Op_Mem _ _ _ _ _ _ _):_)) PrefixA32 = False
 pfxFilter (Instruction _ _ (_:(Op_Mem _ _ _ _ _ _ _):_)) PrefixA32 = False
 pfxFilter (Instruction _ I_MOVSB _) (PrefixSeg FS) = True
