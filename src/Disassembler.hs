@@ -401,10 +401,45 @@ fpu opcode ds = do
                         (1, 1, _) -> rr I_FXCH
                         (1, 2, 3) -> if reg == 0 then r I_FNOP [] else fail "invalid"
                         (1, 2, _) -> rr I_FST
+                        (1, 3, 3) -> fail "invalid"
                         (1, 3, _) -> rr I_FSTP
-                        (1, 3, _) -> rr I_FSTP
+                        (1, 4, 3) -> case reg of
+                                        0 -> r I_FCHS []
+                                        1 -> r I_FABS []
+                                        4 -> r I_FTST []
+                                        5 -> r I_FXAM []
+                                        _ -> fail "invalid"
                         (1, 4, _) -> rr I_FLDENV
+                        (1, 5, 3) -> case reg of
+                                        0 -> r I_FLD1 []
+                                        1 -> r I_FLDL2T []
+                                        2 -> r I_FLDL2E []
+                                        3 -> r I_FLDPI []
+                                        4 -> r I_FLDLG2 []
+                                        5 -> r I_FLDLN2 []
+                                        6 -> r I_FLDZ []
+                                        _ -> fail "invalid"
                         (1, 5, _) -> rr I_FLDCW
+                        (1, 6, 3) -> case reg of
+                                        0 -> r I_F2XM1 []
+                                        1 -> r I_FYL2X []
+                                        2 -> r I_FPTAN []
+                                        3 -> r I_FPATAN []
+                                        4 -> r I_FXTRACT []
+                                        5 -> r I_FPREM1 []
+                                        6 -> r I_FDECSTP []
+                                        7 -> r I_FINCSTP []
+                        (1, 6, _) -> rr I_FSTENV
+                        (1, 7, 3) -> case reg of
+                                        0 -> r I_FPREM []
+                                        1 -> r I_FYL2XP1 []
+                                        2 -> r I_FSQRT []
+                                        3 -> r I_FSINCOS []
+                                        4 -> r I_FRNDINT []
+                                        5 -> r I_FSCALE []
+                                        6 -> r I_FSIN []
+                                        7 -> r I_FCOS []
+                        (1, 7, _) -> rr I_FSTCW
 
                         (2, 0, 3) -> r I_FCMOVB [st0, fpureg]
                         (2, 1, 3) -> r I_FCMOVE [st0, fpureg]
@@ -444,14 +479,14 @@ fpu opcode ds = do
                         (5, 0, 0) -> r I_FLD [rm]
                         (5, 0, 3) -> r I_FFREE [rm]
 
-                        (6, 0, _) -> r I_FIADD [rm]
-                        (6, 1, _) -> r I_FIMUL [rm]
-                        (6, 2, _) -> r I_FICOM [rm]
-                        (6, 3, _) -> r I_FICOMP [rm]
-                        (6, 4, _) -> r I_FISUB [rm]
-                        (6, 5, _) -> r I_FISUBR [rm]
-                        (6, 6, _) -> r I_FIDIV [rm]
-                        (6, 7, _) -> r I_FIDIVR [rm]
+                        (6, 0, _) -> r I_FADDP [rm]
+                        (6, 1, _) -> r I_FMULP [rm]
+                        (6, 2, _) -> r I_FCOMP [rm]
+                        (6, 3, _) -> r I_FCOMPP [rm]
+                        (6, 4, _) -> r I_FSUBP [rm]
+                        (6, 5, _) -> r I_FSUBRP [rm]
+                        (6, 6, _) -> r I_FDIVP [rm]
+                        (6, 7, _) -> r I_FDIVRP [rm]
 
                         (7, 0, 3) -> r I_FFREEP [fpureg]
                         (7, 0, _) -> r I_FILD [rm]

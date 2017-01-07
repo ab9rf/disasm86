@@ -201,6 +201,43 @@ data Operation =
       | I_FCMOVNE
       | I_FCMOVNBE
       | I_FCMOVNU
+      | I_FDIVRP
+      | I_FDIVP
+      | I_FSUBRP
+      | I_FSUBP
+      | I_FCOMPP
+      | I_FMULP
+      | I_FADDP
+      | I_FSTCW
+      | I_FCOS
+      | I_FSIN
+      | I_FSCALE
+      | I_FRNDINT
+      | I_FSINCOS
+      | I_FSQRT
+      | I_FYL2XPI
+      | I_FPREM
+      | I_FSTENV
+      | I_FDECSTP
+      | I_FPREM1
+      | I_FXTRACT
+      | I_FPATAN
+      | I_FPTAN
+      | I_FYL2XP1
+      | I_FINCSTP
+      | I_FYL2X
+      | I_F2XM1
+      | I_FLDZ
+      | I_FLDLN2
+      | I_FLDLG2
+      | I_FLDPI
+      | I_FLDL2E
+      | I_FLDL2T
+      | I_FLD1
+      | I_FXAM
+      | I_FTST
+      | I_FABS
+      | I_FCHS
     deriving (Show, Eq)
 
 data Operand =
