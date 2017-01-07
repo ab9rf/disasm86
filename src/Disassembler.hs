@@ -135,11 +135,18 @@ grp50 i opcode ds = let
     in return (Instruction ep i [Op_Reg reg])
 
 movsxd :: DisassemblerSingle
-movsxd opcode ds = let pfx = dsPfx ds in do
-    (rm, reg, _, _, _) <- modrm' ds (if bitTest 3 (dsRex ds) then 64 else 32) (if (dsO16 ds) then 16 else 32) False
-    let ops = [Op_Reg reg, rm]
-        ep = pfx
-      in return (Instruction ep I_MOVSXD ops)
+movsxd opcode ds = let pfx = dsPfx ds
+                       o16 = dsO16 ds
+                       rexW = bitTest 3 (dsRex ds)
+                       (o1w, o2w) = case (o16, rexW) of
+                                    (False, False) -> (32, 32)
+                                    (True,  False) -> (16, 32)
+                                    (False, True)  -> (64, 32)
+                                    (True,  True)  -> (64, 32)
+    in do (rm, reg, _, _, _) <- modrm' ds o2w o1w False
+          let ops = [Op_Reg reg, rm]
+              ep = pfx
+            in return (Instruction ep I_MOVSXD ops)
 
 pushImm :: DisassemblerSingle
 pushImm opcode ds = let pfx = dsPfx ds; opWidth = case (dsO16 ds, opcode) of (_, 0x6a) -> 8; (True, 0x68) -> 16; (False, 0x68) -> 32 in do
@@ -382,7 +389,7 @@ fpu opcode ds = do
             rmb <- lookAhead getWord8
             let set = bits 0 3 opcode
                 op = bits 0 3 rmb
-                opWidth = case (set, op) of (3,0) -> 32; (3,1) -> 32; (3,_) -> 64; (4,_) -> 64; (5,_) -> 64; (6,_) -> 16; (7,7) -> 64; (7,5) -> 64; (7,0) -> 16; _ -> 32
+                opWidth = case (set, op) of (3,0) -> 32; (3,1) -> 32; (3,2) -> 32; (3,3) -> 32; (3,_) -> 64; (4,_) -> 64; (5,_) -> 64; (6,_) -> 16; (7,7) -> 64; (7,5) -> 64; (7,0) -> 16; _ -> 32
              in do
                 (rm, _, op, mod, reg) <- modrmFpu ds opWidth
                 let ep = dsPfx ds
@@ -428,7 +435,7 @@ fpu opcode ds = do
                                         1 -> r I_FYL2X []
                                         2 -> r I_FPTAN []
                                         3 -> r I_FPATAN []
-                                        4 -> r I_FXTRACT []
+                                        4 -> r I_FPXTRACT []
                                         5 -> r I_FPREM1 []
                                         6 -> r I_FDECSTP []
                                         7 -> r I_FINCSTP []
@@ -448,32 +455,36 @@ fpu opcode ds = do
                         (2, 1, 3) -> r I_FCMOVE [st0, fpureg]
                         (2, 2, 3) -> r I_FCMOVBE [st0, fpureg]
                         (2, 3, 3) -> r I_FCMOVU [st0, fpureg]
-                        (2, 0, _) -> r I_FIADD [rm]
-                        (2, 1, _) -> r I_FIMUL [rm]
-                        (2, 2, _) -> r I_FICOM [rm]
-                        (2, 3, _) -> r I_FICOMP [rm]
-                        (2, 4, _) -> r I_FISUB [rm]
-                        (2, 5, _) -> r I_FISUBR [rm]
-                        (2, 6, _) -> r I_FIDIV [rm]
-                        (2, 7, _) -> r I_FIDIVR [rm]
+                        (2, 4, 3) -> fail "invalid"
+                        (2, 5, 3) -> if reg == 1 then r I_FUCOMPP [] else fail "invalid"
+                        (2, 6, 3) -> fail "invalid"
+                        (2, 7, 3) -> fail "invalid"
+                        (2, 0, _) -> rr I_FIADD
+                        (2, 1, _) -> rr I_FIMUL
+                        (2, 2, _) -> rr I_FICOM
+                        (2, 3, _) -> rr I_FICOMP
+                        (2, 4, _) -> rr I_FISUB
+                        (2, 5, _) -> rr I_FISUBR
+                        (2, 6, _) -> rr I_FIDIV
+                        (2, 7, _) -> rr I_FIDIVR
 
                         (3, 0, 3) -> r I_FCMOVNB [st0, fpureg]
                         (3, 1, 3) -> r I_FCMOVNE [st0, fpureg]
                         (3, 2, 3) -> r I_FCMOVNBE [st0, fpureg]
                         (3, 3, 3) -> r I_FCMOVNU [st0, fpureg]
-                        (3, 0, _) -> r I_FILD [rm]
-                        (3, 1, _) -> r I_FISTTP [rm]
-                        (3, 7, _) -> r I_FSTP [rm]
+                        (3, 0, _) -> rr I_FILD
+                        (3, 1, _) -> rr I_FISTTP
+                        (3, 7, _) -> rr I_FSTP
 
-                        (4, 0, _) -> r I_FADD [rm]
-                        (4, 1, _) -> r I_FMUL [rm]
+                        (4, 0, _) -> rr I_FADD
+                        (4, 1, _) -> rr I_FMUL
                         (4, 2, 3) -> r I_FCOM2 [fpureg]
-                        (4, 2, _) -> r I_FCOM [rm]
-                        (4, 3, _) -> r I_FCOMP [rm]
-                        (4, 4, _) -> r I_FSUB [rm]
-                        (4, 5, _) -> r I_FSUBR [rm]
-                        (4, 6, _) -> r I_FDIV [rm]
-                        (4, 7, _) -> r I_FDIVR [rm]
+                        (4, 2, _) -> rr I_FCOM
+                        (4, 3, _) -> rr I_FCOMP
+                        (4, 4, _) -> rr I_FSUB
+                        (4, 5, _) -> rr I_FSUBR
+                        (4, 6, _) -> rr I_FDIV
+                        (4, 7, _) -> rr I_FDIVR
 
                         (5, 1, _) -> r I_FISTTP [rm]
                         (5, 2, _) -> r I_FST [rm]
@@ -515,7 +526,9 @@ fpu opcode ds = do
 applyPrefix :: DisassemblerSingle
 applyPrefix opcode ds = disassemble1' basicOpcodeMap (addPfx opcode ds)
   where addPfx o ds = let newpfx = (Map.!) prefixMap o
+                          isseg = case newpfx of (PrefixSeg _) -> True; _ -> False
                           fi pfx = case pfx of (PrefixRex _) -> False;
+                                               (PrefixSeg _) -> not isseg
                                                _ | pfx == newpfx -> False
                                                  | otherwise -> True
                           pfx' = filter fi (dsPfx ds)
@@ -804,6 +817,7 @@ opcodeMap0f :: OpcodeMap
 opcodeMap0f = Map.fromList [
            ( 0x00, grp0f00
         ), ( 0x05, simple I_SYSCALL []
+        ), ( 0x06, simple I_CLTS []
         ), ( 0xc8, bswap
         ), ( 0xc9, bswap
         ), ( 0xca, bswap

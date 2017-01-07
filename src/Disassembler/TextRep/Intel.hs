@@ -6,7 +6,8 @@ module Disassembler.TextRep.Intel
 import Disassembler.Types
 
 import Data.Word (Word64, Word32, Word16, Word8)
-import Data.List (intercalate)
+import Data.List (intercalate, sortBy)
+import Data.Ord (comparing)
 import Numeric (showHex)
 
 textrep :: Instruction -> String
@@ -20,7 +21,7 @@ textrep i@(Instruction p oper operands) =
                 (_, _, oo1:oor) -> (ost++oo1):oor
 
         tp = concat (map ((++" ").prefixtext) p')
-        p' = filter (pfxFilter i) p
+        p' = (reorderPfx (filter (pfxFilter i) p))
         ao = (ambiSelect oper operands)
         a = (not (null operands)
                                 && (isAmbiguousSizeInstr i)
@@ -33,21 +34,60 @@ textrep i@(Instruction p oper operands) =
       in case t2 of "" -> t1
                     _  -> t1 ++ " " ++ t2
 
+reorderPfx p = sortBy ((comparing pfxOrder) ) p
+
+pfxOrder :: Prefix -> Int
+pfxOrder PrefixLock = 1
+pfxOrder PrefixRepNE = 0
+pfxOrder PrefixRep = 0
+pfxOrder (PrefixSeg _) = 2
+pfxOrder PrefixO16 = -2
+pfxOrder PrefixA32 = -1
+pfxOrder _ = 9
+
+
 pfxFilter _ (PrefixRex _) = False
-pfxFilter (Instruction [PrefixRep] I_PAUSE []) PrefixRep = True
+pfxFilter (Instruction [PrefixRep] I_PAUSE []) PrefixRep = False
 
 pfxFilter (Instruction _ I_MOVSB _) (PrefixSeg _) = True
+pfxFilter (Instruction _ I_MOVSW _) (PrefixSeg _) = True
 pfxFilter (Instruction _ I_MOVSD _) (PrefixSeg _) = True
-pfxFilter (Instruction _ I_STOSB _) (PrefixSeg FS) = True
-pfxFilter (Instruction _ I_CBW _) (PrefixO16) = False
-pfxFilter (Instruction _ I_PUSHFQ _) (PrefixO16) = False
-pfxFilter (Instruction _ I_OUTSW _) (PrefixO16) = False
-pfxFilter (Instruction _ I_OUTSQ _) (PrefixO16) = False
-pfxFilter (Instruction _ I_IRETW _) (PrefixO16) = False
-pfxFilter (Instruction _ I_CALL _) (PrefixO16) = False
+pfxFilter (Instruction _ I_STOSB _) (PrefixSeg _) = True
+pfxFilter (Instruction _ I_STOSW _) (PrefixSeg _) = True
+pfxFilter (Instruction _ I_STOSD _) (PrefixSeg _) = True
+pfxFilter (Instruction _ I_STOSQ _) (PrefixSeg _) = True
+pfxFilter (Instruction _ I_LODSB _) (PrefixSeg _) = True
+pfxFilter (Instruction _ I_LODSW _) (PrefixSeg _) = True
+pfxFilter (Instruction _ I_LODSD _) (PrefixSeg _) = True
+pfxFilter (Instruction _ I_CBW _) PrefixO16 = False
+pfxFilter (Instruction _ I_CWD _) PrefixO16 = False
+pfxFilter (Instruction _ I_CQO _) PrefixO16 = False
+pfxFilter (Instruction _ I_CDQE _) PrefixO16 = False
+pfxFilter (Instruction _ I_PUSHFQ _) PrefixO16 = False
+pfxFilter (Instruction _ I_OUTSW _) PrefixO16 = False
+pfxFilter (Instruction _ I_OUTSQ _) PrefixO16 = False
+pfxFilter (Instruction _ I_STOSW _) PrefixO16 = False
+pfxFilter (Instruction _ I_STOSQ _) PrefixO16 = False
+pfxFilter (Instruction _ I_MOVSW _) PrefixO16 = False
+pfxFilter (Instruction _ I_MOVSQ _) PrefixO16 = False
+pfxFilter (Instruction _ I_SCASW _) PrefixO16 = False
+pfxFilter (Instruction _ I_SCASQ _) PrefixO16 = False
+pfxFilter (Instruction _ I_LODSW _) PrefixO16 = False
+pfxFilter (Instruction _ I_LODSQ _) PrefixO16 = False
+pfxFilter (Instruction _ I_IRETW _) PrefixO16 = False
+pfxFilter (Instruction _ I_IRETQ _) PrefixO16 = False
+pfxFilter (Instruction _ I_CALL _) PrefixO16 = False
+pfxFilter (Instruction _ I_PUSH _) PrefixO16 = False
 
-pfxFilter (Instruction _ I_IN [Op_Reg _, Op_Reg (Reg16 RDX)]) PrefixO16 = False
+pfxFilter (Instruction _ I_IN _) PrefixA32 = True
+pfxFilter (Instruction _ I_IN [Op_Reg (Reg8 RAX HalfL), Op_Reg _]) PrefixO16 = True
+pfxFilter (Instruction _ I_IN [Op_Reg (Reg16 RAX), Op_Reg _]) PrefixO16 = False
 pfxFilter (Instruction _ I_XCHG [Op_Reg _, Op_Reg _]) PrefixA32 = True
+
+pfxFilter (Instruction _ I_INSW _) PrefixO16 = False
+
+pfxFilter (Instruction _ I_MOV [Op_Reg (RegSeg _), _]) PrefixO16 = False
+pfxFilter (Instruction _ I_MOV [_, Op_Reg (RegSeg _)]) PrefixO16 = False
 
 pfxFilter (Instruction _ _ ((Op_Reg (Reg64 _)):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ (_:(Op_Reg (Reg64 _)):_)) PrefixO16 = False
@@ -55,10 +95,15 @@ pfxFilter (Instruction _ _ ((Op_Reg (Reg16 _)):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ (_:(Op_Reg (Reg16 _)):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ ((Op_Mem 16 _ _ _ _ _ _):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ (_:(Op_Mem 16 _ _ _ _ _ _):_)) PrefixO16 = False
-pfxFilter (Instruction _ _ ((Op_Mem _ _ _ _ _ _ _):_)) PrefixA32 = False
-pfxFilter (Instruction _ _ (_:(Op_Mem _ _ _ _ _ _ _):_)) PrefixA32 = False
+
+pfxFilter (Instruction _ _ ((Op_Mem _ 64 _ _ _ _ _):_)) PrefixA32 = False
+pfxFilter (Instruction _ _ (_:(Op_Mem _ 64 _ _ _ _ _):_)) PrefixA32 = False
+pfxFilter (Instruction _ _ ((Op_Mem _ 32 (Reg32 _) _ _ _ _):_)) PrefixA32 = False
+pfxFilter (Instruction _ _ (_:(Op_Mem _ 32 (Reg32 _) _ _ _ _):_)) PrefixA32 = False
+pfxFilter (Instruction _ _ [Op_Reg (RegFPU _), Op_Reg (RegFPU _)]) PrefixA32 = True
 pfxFilter (Instruction _ _ [Op_Reg _, Op_Reg _]) PrefixA32 = False
 pfxFilter (Instruction _ _ [Op_Reg _, Op_Const _]) PrefixA32 = False
+-- pfxFilter (Instruction _ _ [Op_Reg _, Op_Imm _]) PrefixA32 = False
 
 pfxFilter _ (PrefixSeg _) = False
 pfxFilter _ (PrefixRex _) = False
@@ -74,7 +119,13 @@ ambiSelect I_SHR    = take 1
 ambiSelect I_MOVSXD = drop 1
 ambiSelect _        = id
 
-isAmbiguousSizeInstr (Instruction _ I_SHL [_,Op_Reg (Reg8 RCX HalfL)]) = False
+isAmbiguousSizeInstr (Instruction _ I_SHL [Op_Mem 8 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = False
+isAmbiguousSizeInstr (Instruction _ I_SHL [_,Op_Reg (Reg8 RCX HalfL)]) = True
+isAmbiguousSizeInstr (Instruction _ I_SHR [Op_Mem 8 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = False
+isAmbiguousSizeInstr (Instruction _ I_SHR [_,Op_Reg (Reg8 RCX HalfL)]) = True
+isAmbiguousSizeInstr (Instruction _ I_SAR [Op_Mem 16 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = True
+isAmbiguousSizeInstr (Instruction _ I_SAR [Op_Mem 8 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = False
+isAmbiguousSizeInstr (Instruction _ I_SAR [_,Op_Reg (Reg8 RCX HalfL)]) = True
 isAmbiguousSizeInstr (Instruction _ I_INT _) = False
 isAmbiguousSizeInstr (Instruction _ I_RET _) = False
 isAmbiguousSizeInstr (Instruction _ I_RETF _) = False
@@ -130,8 +181,8 @@ operandtext (Op_Mem sz asz base idx sf ofs seg) =
                     (_,_)       -> ((registertext idx) ++ "*" ++ (show sf))
         os = case ofs of Immediate 0 _         -> ""
                          Immediate _ 0         -> "0x0"
-                         Immediate isz v | asz == isz || only || v > 0 -> ("0x" ++ (showHex (unsigned asz v)) "")
-                                         |                       v < 0 -> ("-0x" ++ (showHex (negate v)) "")
+                         Immediate isz v | asz == isz || v > 0 -> ("0x" ++ (showHex (unsigned asz v)) "")
+                                         |               v < 0 -> ("-0x" ++ (showHex (negate v)) "")
         bsis = case (bs,is) of
                     ("",_) -> is
                     (_,"") -> bs
@@ -370,7 +421,7 @@ opertext I_FPREM = "fprem"
 opertext I_FSTENV = "fstenv"
 opertext I_FDECSTP = "fdecstp"
 opertext I_FPREM1 = "fprem1"
-opertext I_FXTRACT = "fxtract"
+opertext I_FPXTRACT = "fpxtract"
 opertext I_FPATAN = "fpatan"
 opertext I_FPTAN = "fptan"
 opertext I_FYL2XP1 = "fyl2xp1"
@@ -390,6 +441,8 @@ opertext I_FABS = "fabs"
 opertext I_FCHS = "fchs"
 opertext I_FSTP1 = "fstp1"
 opertext I_STR = "str"
+opertext I_CLTS = "clts"
+opertext I_FUCOMPP = "fucompp"
 
 registertext :: Register -> String
 registertext RegNone = ""

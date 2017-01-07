@@ -220,7 +220,7 @@ data Operation =
       | I_FSTENV
       | I_FDECSTP
       | I_FPREM1
-      | I_FXTRACT
+      | I_FPXTRACT
       | I_FPATAN
       | I_FPTAN
       | I_FYL2XP1
@@ -240,6 +240,8 @@ data Operation =
       | I_FCHS
       | I_FSTP1
       | I_STR
+      | I_CLTS
+      | I_FUCOMPP
     deriving (Show, Eq)
 
 data Operand =
