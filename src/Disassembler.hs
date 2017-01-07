@@ -148,7 +148,7 @@ pushImm opcode ds = let pfx = dsPfx ds; opWidth = case (dsO16 ds, opcode) of (_,
       in return (Instruction ep I_PUSH [imm])
 
 imul3 :: DisassemblerSingle
-imul3 opcode ds = let pfx = dsPfx ds; opWidth = opOpWidth' opcode ds; immSize = case opcode of 0x69 -> opWidth; 0x6a -> 8 in do
+imul3 opcode ds = let pfx = dsPfx ds; opWidth = opOpWidth' opcode ds; immSize = case opcode of 0x69 -> opWidth; 0x6b -> 8 in do
     (rm, reg, _, _, _) <- modrm ds opWidth
     imm <- fetchImm immSize
     let ep = pfx
@@ -171,7 +171,7 @@ jshort i opcode ds = do
 
 grp80 :: DisassemblerSingle
 grp80 opcode ds = let
-        (opWidth, immSize) = case opcode of 0x80 -> (o, 8); 0x80 -> (o, o); 0x83 -> (o, 8)
+        (opWidth, immSize) = case opcode of 0x80 -> (o, 8); 0x81 -> (o, o); 0x83 -> (o, 8)
         o = opOpWidth opcode ds
     in do
         (rm, _, op, _, _) <- modrm ds opWidth
@@ -220,6 +220,9 @@ xchg opcode ds = let
 sized i16 i32 i64 opcode ds =
     let i = case opOpWidth' opcode ds of 64 -> i64; 32 -> i32; 16 -> i16
     in return (Instruction (dsPfx ds) i [])
+
+sized' i16 i32 opcode ds = let r i = return (Instruction (dsPfx ds) i [])
+    in case opOpWidth' opcode ds of 32 -> r i32; 16 -> r i16; _ -> fail "invalid"
 
 movaddr opcode ds = let
     aWidth = case (dsA32 ds) of
@@ -379,7 +382,7 @@ fpu opcode ds = do
             rmb <- lookAhead getWord8
             let set = bits 0 3 opcode
                 op = bits 0 3 rmb
-                opWidth = case (set, op) of (3,0) -> 32; (3,_) -> 80; (4,_) -> 64; (5,_) -> 64; (6,_) -> 16; (7,7) -> 64; (7,5) -> 64; (7,0) -> 16; _ -> 32
+                opWidth = case (set, op) of (3,0) -> 32; (3,1) -> 32; (3,_) -> 64; (4,_) -> 64; (5,_) -> 64; (6,_) -> 16; (7,7) -> 64; (7,5) -> 64; (7,0) -> 16; _ -> 32
              in do
                 (rm, _, op, mod, reg) <- modrmFpu ds opWidth
                 let ep = dsPfx ds
@@ -398,10 +401,10 @@ fpu opcode ds = do
                         (0, 7, _) -> rr I_FDIVR
 
                         (1, 0, _) -> rr I_FLD
-                        (1, 1, _) -> rr I_FXCH
+                        (1, 1, 3) -> rr I_FXCH
                         (1, 2, 3) -> if reg == 0 then r I_FNOP [] else fail "invalid"
                         (1, 2, _) -> rr I_FST
-                        (1, 3, 3) -> fail "invalid"
+                        (1, 3, 3) -> r I_FSTP1 [fpureg]
                         (1, 3, _) -> rr I_FSTP
                         (1, 4, 3) -> case reg of
                                         0 -> r I_FCHS []
@@ -511,7 +514,12 @@ fpu opcode ds = do
 
 applyPrefix :: DisassemblerSingle
 applyPrefix opcode ds = disassemble1' basicOpcodeMap (addPfx opcode ds)
-  where addPfx o ds = ds { dsPfx = ((Map.!) prefixMap o):(dsPfx ds) }
+  where addPfx o ds = let newpfx = (Map.!) prefixMap o
+                          fi pfx = case pfx of (PrefixRex _) -> False;
+                                               _ | pfx == newpfx -> False
+                                                 | otherwise -> True
+                          pfx' = filter fi (dsPfx ds)
+                        in ds { dsPfx = ((Map.!) prefixMap o):pfx' }
 
 invalid :: DisassemblerSingle
 invalid _ _ = fail "invalid"
@@ -627,7 +635,7 @@ basicOpcodeMap = Map.fromList [
         ), ( 0x6a, pushImm
         ), ( 0x6b, imul3
         ), ( 0x6c, simple I_INSB []
-        ), ( 0x6d, sized I_INSW I_INSD I_INSQ
+        ), ( 0x6d, sized' I_INSW I_INSD
         ), ( 0x6e, simple I_OUTSB []
         ), ( 0x6f, sized I_OUTSW I_OUTSD I_OUTSQ
         ), ( 0x70, jshort I_JO
@@ -789,6 +797,7 @@ grp0f00 opcode ds = let pfx = dsPfx ds in do
     rmb <- lookAhead getWord8
     case bits 3 3 rmb of
        0 -> do (rm, _, _, _, _) <- modrm ds 32; let ep = dsPfx ds in return (Instruction ep I_SLDT [rm])
+       1 -> do (rm, _, _, _, _) <- modrm ds 16; let ep = dsPfx ds in return (Instruction ep I_STR [rm])
        _ -> fail "invalid"
 
 opcodeMap0f :: OpcodeMap

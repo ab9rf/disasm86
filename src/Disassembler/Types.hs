@@ -238,6 +238,8 @@ data Operation =
       | I_FTST
       | I_FABS
       | I_FCHS
+      | I_FSTP1
+      | I_STR
     deriving (Show, Eq)
 
 data Operand =
