@@ -19,7 +19,8 @@ textrep (Instruction p oper operands) =
                 (_, I_MOVSXD, oo1:oo2:oor) -> oo1:(ost++oo2):oor
                 (_, _, oo1:oor) -> (ost++oo1):oor
 
-        tp = concat (map ((++" ").prefixtext) p)
+        tp = concat (map ((++" ").prefixtext) p')
+        p' = filter (\pfx -> case pfx of (PrefixRex _) -> False; (PrefixSeg _) -> False; _ -> True) p
         ao = (ambiSelect oper operands)
         a = (not (null operands)
                                 && (isAmbiguousSizeInstr oper)
