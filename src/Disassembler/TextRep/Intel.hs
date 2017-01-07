@@ -10,7 +10,7 @@ import Data.List (intercalate)
 import Numeric (showHex)
 
 textrep :: Instruction -> String
-textrep (Instruction p oper operands) =
+textrep i@(Instruction p oper operands) =
     let t1 = tp ++ (opertext oper)
         t2 = intercalate ", " oo
         oo' = (map operandtext operands)
@@ -20,7 +20,7 @@ textrep (Instruction p oper operands) =
                 (_, _, oo1:oor) -> (ost++oo1):oor
 
         tp = concat (map ((++" ").prefixtext) p')
-        p' = filter (\pfx -> case pfx of (PrefixRex _) -> False; (PrefixSeg _) -> False; _ -> True) p
+        p' = filter (pfxFilter i) p
         ao = (ambiSelect oper operands)
         a = (not (null operands)
                                 && (isAmbiguousSizeInstr oper)
@@ -32,6 +32,15 @@ textrep (Instruction p oper operands) =
                     else ""
       in case t2 of "" -> t1
                     _  -> t1 ++ " " ++ t2
+
+pfxFilter _ (PrefixRex _) = False
+pfxFilter (Instruction _ _ ((Op_Mem _ _ _ _ _ _ _):_)) PrefixA32 = False
+pfxFilter (Instruction _ _ (_:(Op_Mem _ _ _ _ _ _ _):_)) PrefixA32 = False
+pfxFilter (Instruction _ I_MOVSB _) (PrefixSeg FS) = True
+pfxFilter _ (PrefixSeg _) = False
+pfxFilter _ (PrefixRex _) = False
+pfxFilter _ _ = True
+
 
 ambiSelect I_RCR    = take 1
 ambiSelect I_RCL    = take 1
