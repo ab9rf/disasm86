@@ -39,6 +39,7 @@ pfxFilter (Instruction _ _ (_:(Op_Reg (Reg16 _)):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ ((Op_Mem _ _ _ _ _ _ _):_)) PrefixA32 = False
 pfxFilter (Instruction _ _ (_:(Op_Mem _ _ _ _ _ _ _):_)) PrefixA32 = False
 pfxFilter (Instruction _ I_MOVSB _) (PrefixSeg FS) = True
+pfxFilter (Instruction _ I_MOVSD _) (PrefixSeg FS) = True
 pfxFilter _ (PrefixSeg _) = False
 pfxFilter _ (PrefixRex _) = False
 pfxFilter _ _ = True
