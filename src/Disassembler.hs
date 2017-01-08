@@ -196,7 +196,7 @@ grp80 opcode ds = let
           in return (Instruction ep i [rm, imm])
 
 movsr opcode ds = do
-    (rm, _, sr, _, _) <- modrm ds (opOpWidth opcode ds)
+    (rm, _, sr, _, _) <- modrm ds (if dsO16 ds then 16 else 32)
     let sreg = RegSeg ( [ES, CS, SS, DS, FS, GS, SR6, SR7] !! sr )
         ops = case (bits 1 1 opcode) of
                     0 -> [rm, Op_Reg sreg]
