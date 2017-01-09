@@ -59,6 +59,7 @@ pfxFilter (Instruction _ I_STOSQ _) (PrefixSeg _) = True
 pfxFilter (Instruction _ I_LODSB _) (PrefixSeg _) = True
 pfxFilter (Instruction _ I_LODSW _) (PrefixSeg _) = True
 pfxFilter (Instruction _ I_LODSD _) (PrefixSeg _) = True
+
 pfxFilter (Instruction _ I_CBW _) PrefixO16 = False
 pfxFilter (Instruction _ I_CWD _) PrefixO16 = False
 pfxFilter (Instruction _ I_CQO _) PrefixO16 = False
@@ -78,6 +79,8 @@ pfxFilter (Instruction _ I_IRETW _) PrefixO16 = False
 pfxFilter (Instruction _ I_IRETQ _) PrefixO16 = False
 pfxFilter (Instruction _ I_CALL _) PrefixO16 = False
 pfxFilter (Instruction _ I_PUSH _) PrefixO16 = False
+pfxFilter (Instruction _ I_POP _) PrefixO16 = False
+pfxFilter (Instruction _ I_POPFQ _) PrefixO16 = False
 
 pfxFilter (Instruction _ I_IN _) PrefixA32 = True
 pfxFilter (Instruction _ I_IN [Op_Reg (Reg8 RAX HalfL), Op_Reg _]) PrefixO16 = True
@@ -89,12 +92,22 @@ pfxFilter (Instruction _ I_INSW _) PrefixO16 = False
 pfxFilter (Instruction _ I_MOV [Op_Reg (RegSeg _), _]) PrefixO16 = False
 pfxFilter (Instruction _ I_MOV [_, Op_Reg (RegSeg _)]) PrefixO16 = False
 
+pfxFilter (Instruction _ I_JECXZ _) PrefixA32 = False
+
 pfxFilter (Instruction _ _ ((Op_Reg (Reg64 _)):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ (_:(Op_Reg (Reg64 _)):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ ((Op_Reg (Reg16 _)):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ (_:(Op_Reg (Reg16 _)):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ ((Op_Mem 16 _ _ _ _ _ _):_)) PrefixO16 = False
+pfxFilter (Instruction _ _ ((Op_Mem 64 _ _ _ _ _ _):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ (_:(Op_Mem 16 _ _ _ _ _ _):_)) PrefixO16 = False
+pfxFilter (Instruction _ _ (_:(Op_Mem 64 _ _ _ _ _ _):_)) PrefixO16 = False
+
+-- 67a100000000 -> mov eax, [0x0]
+pfxFilter (Instruction _ I_MOV [Op_Reg (Reg32 _), Op_Mem 32 _ _ _ _ _ _]) PrefixA32 = False
+
+pfxFilter (Instruction _ I_ROL [Op_Reg _, Op_Imm _]) PrefixA32 = False
+pfxFilter (Instruction _ I_ADD [Op_Reg _, Op_Imm _]) PrefixA32 = False
 
 pfxFilter (Instruction _ _ ((Op_Mem _ 64 _ _ _ _ _):_)) PrefixA32 = False
 pfxFilter (Instruction _ _ (_:(Op_Mem _ 64 _ _ _ _ _):_)) PrefixA32 = False
@@ -103,7 +116,6 @@ pfxFilter (Instruction _ _ (_:(Op_Mem _ 32 (Reg32 _) _ _ _ _):_)) PrefixA32 = Fa
 pfxFilter (Instruction _ _ [Op_Reg (RegFPU _), Op_Reg (RegFPU _)]) PrefixA32 = True
 pfxFilter (Instruction _ _ [Op_Reg _, Op_Reg _]) PrefixA32 = False
 pfxFilter (Instruction _ _ [Op_Reg _, Op_Const _]) PrefixA32 = False
--- pfxFilter (Instruction _ _ [Op_Reg _, Op_Imm _]) PrefixA32 = False
 
 pfxFilter _ (PrefixSeg _) = False
 pfxFilter _ (PrefixRex _) = False
@@ -123,6 +135,7 @@ isAmbiguousSizeInstr (Instruction _ I_SHL [Op_Mem 8 _ _ _ _ _ _,Op_Reg (Reg8 RCX
 isAmbiguousSizeInstr (Instruction _ I_SHL [_,Op_Reg (Reg8 RCX HalfL)]) = True
 isAmbiguousSizeInstr (Instruction _ I_SHR [Op_Mem 8 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = False
 isAmbiguousSizeInstr (Instruction _ I_SHR [_,Op_Reg (Reg8 RCX HalfL)]) = True
+isAmbiguousSizeInstr (Instruction _ I_SAR [Op_Mem 32 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = True
 isAmbiguousSizeInstr (Instruction _ I_SAR [Op_Mem 16 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = True
 isAmbiguousSizeInstr (Instruction _ I_SAR [Op_Mem 8 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = False
 isAmbiguousSizeInstr (Instruction _ I_SAR [_,Op_Reg (Reg8 RCX HalfL)]) = True
@@ -149,7 +162,7 @@ isAmbiguousSizeInstr (Instruction _ I_ENTER _) = False
 isAmbiguousSizeInstr (Instruction _ I_LOOP _) = False
 isAmbiguousSizeInstr (Instruction _ I_LOOPE _) = False
 isAmbiguousSizeInstr (Instruction _ I_LOOPNZ _) = False
-isAmbiguousSizeInstr (Instruction _ I_JRCXZ _) = False
+isAmbiguousSizeInstr (Instruction _ I_JECXZ _) = False
 isAmbiguousSizeInstr (Instruction _ I_FBLD _ ) = False
 isAmbiguousSizeInstr (Instruction _ I_FLDENV _) = False
 isAmbiguousSizeInstr (Instruction _ I_SLDT _ ) = False
@@ -274,7 +287,7 @@ opertext I_JMP = "jmp"
 opertext I_LOOPNZ = "loopnz"
 opertext I_LOOPE = "loope"
 opertext I_LOOP = "loop"
-opertext I_JRCXZ = "jrcxz"
+opertext I_JECXZ = "jecxz"
 opertext I_FFREEP = "ffreep"
 opertext I_FXCH7 = "fxch7"
 opertext I_FSTP8 = "fstp8"
@@ -443,6 +456,8 @@ opertext I_FSTP1 = "fstp1"
 opertext I_STR = "str"
 opertext I_CLTS = "clts"
 opertext I_FUCOMPP = "fucompp"
+opertext I_SYSRET = "sysret"
+opertext I_INVD = "invd"
 
 registertext :: Register -> String
 registertext RegNone = ""

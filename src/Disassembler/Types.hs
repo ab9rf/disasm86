@@ -56,7 +56,7 @@ data Operation =
       | I_LOOPNZ
       | I_LOOPE
       | I_LOOP
-      | I_JRCXZ
+      | I_JECXZ
       | I_FFREEP
       | I_FXCH7
       | I_FSTP8
@@ -242,6 +242,8 @@ data Operation =
       | I_STR
       | I_CLTS
       | I_FUCOMPP
+      | I_SYSRET
+      | I_INVD
     deriving (Show, Eq)
 
 data Operand =

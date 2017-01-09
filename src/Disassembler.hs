@@ -493,6 +493,7 @@ fpu opcode ds = do
                         (5, 0, 0) -> r I_FLD [rm]
                         (5, 0, 3) -> r I_FFREE [rm]
 
+                        (6, 0, 3) -> r I_FIADD [rm]
                         (6, 0, _) -> r I_FADDP [rm]
                         (6, 1, _) -> r I_FMULP [rm]
                         (6, 2, _) -> r I_FCOMP [rm]
@@ -766,7 +767,7 @@ basicOpcodeMap = Map.fromList [
         ), ( 0xe0, jshort I_LOOPNZ
         ), ( 0xe1, jshort I_LOOPE
         ), ( 0xe2, jshort I_LOOP
-        ), ( 0xe3, jshort I_JRCXZ
+        ), ( 0xe3, jshort I_JECXZ
         ), ( 0xe4, inout Nothing
         ), ( 0xe5, inout Nothing
         ), ( 0xe6, inout Nothing
@@ -818,6 +819,8 @@ opcodeMap0f = Map.fromList [
            ( 0x00, grp0f00
         ), ( 0x05, simple I_SYSCALL []
         ), ( 0x06, simple I_CLTS []
+        ), ( 0x07, simple I_SYSRET []
+        ), ( 0x08, simple I_INVD []
         ), ( 0xc8, bswap
         ), ( 0xc9, bswap
         ), ( 0xca, bswap
