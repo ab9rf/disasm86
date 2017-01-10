@@ -868,9 +868,9 @@ modrm' ds opWidth opWidth' fpu = do
           in return (rm, reg, b'reg, b'mod, b'rm)
 
 parseSib m dispSize rex aw sib = let
-                         br = bits 0 3 sib
-                         ir = bits 3 3 sib
-                         ss = bits 6 2 sib
+                         br = (bits 0 3 sib)
+                         ir = (bits 3 3 sib)
+                         ss = (bits 6 2 sib)
                          sp = (case aw of 16 -> Reg16; 32 -> Reg32; 64 -> Reg64) RSP
                          breg = selectreg 0 br aw rex False
                          ireg = selectreg 1 ir aw rex False
