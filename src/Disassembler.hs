@@ -31,10 +31,110 @@ disassemble ofs s = case runGetOrFail (disassemble1 ofs) s of
                     Right (r, b, i) -> let (i',r') = disassemble (ofs+(fromIntegral b)) r in (i:i', r')
 
 disassemble1 :: Word64 -> Get Instruction
-disassemble1 ofs = disassemble1' basicOpcodeMap (dsInitial ofs)
+disassemble1 ofs = disassemble1' (dsInitial ofs)
 
-disassemble1' :: OpcodeMap -> DisassemblerState -> Get Instruction
-disassemble1' map ds = do opcode <- getWord8
+aluops = [I_ADD, I_OR, I_ADC, I_SBB, I_AND, I_SUB, I_XOR, I_CMP ]
+segregs = [ES, CS, SS, DS, FS, GS, SR6, SR7]
+genregs = [RAX, RCD, RDX, RBX, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15]
+
+combine2 :: Monad m => (t1 -> t2 -> t3) -> Word8 -> m (Word8, t1) -> m (Word8,t2) -> m (Word8,t3)
+combine2 f b = liftM2 (\(i1,x1) (i2,x2) -> (b .|. i1 .|. i2, f x1 x2))
+
+combine1 :: Monad m => (t1 -> t2) -> Word8 -> m (Word8, t1) -> m (Word8, t2)
+combine1 f b = liftM (\(i1,x1) -> (b .|. i1, f x1))
+
+combine0 :: t1 -> Word8 -> (Word8, t1)
+combine0 f b = (b,f)
+
+numbered' sh = zip (map ((`shiftL` sh) [0..]))
+numbered = zip [0..]
+
+opcodeList =
+    combine2 Instruction 0x0 ( numbered 3 aluops )
+        ( numbered [[OpEb, OpGb], [OpEv, OpGV], [OpGb, OpEb], [OpGv, OpEv], [OpRegB RAX, OpIb], [OpReg RAX, OpIz]] )
+ ++ combine0 TwoByte 0x0f
+ ++ combine1 (\x -> Prefix (PrefixSeg x)) 0x2e ( numbered ( take 4 segregs ))
+ ++ combine1 (\x -> Prefix (PrefixRex x)) 0x40 ( numbered [0..15] )
+ ++ combine2 (Instruction64) 0x50
+        ( numbered' 3 [ I_PUSH, I_POP ] )
+        ( numbered (zipWith (\r1 r2 -> [OpReg' r1 r2]) (take 8 genregs) (drop 8 genregs)) )
+ ++ combine0 (Instruction I_MOVSXD [OpGv, OpEv]) 0x63
+ ++ combine1 (\x -> Prefix (PrefixSeg x)) 0x64 ( numbered [FS, GS] )
+ ++ combine0 (Prefix PrefixO16) 0x66
+ ++ combine0 (Prefix PrefixA32) 0x67
+ ++ combine0 (Instruction64 I_PUSH [OpIz]) 0x68
+ ++ combine0 (Instruction I_IMUL [OpGv, OpEv, OpIz]) 0x69
+ ++ combine0 (Instruction64 I_PUSH [OpIb]) 0x6a
+ ++ combine0 (Instruction I_IMUL [OpGv, OpEv, OpIb]) 0x6b
+ ++ combine0 (Instruction I_INSB []) 0x6c
+ ++ combine0 (SizedInstruction [(16,I_INSW),(32,I_INSD)] []) 0x6d
+ ++ combine0 (Instruction I_OUTSB []) 0x6e
+ ++ combine0 (SizedInstruction [(16,I_OUTSW),(32,I_OUTSD)] []) 0x6f
+ ++ combine1 (\i -> Instruction64F i [Jb]) 0x70
+        ( numbered [  I_JO, I_JNO, I_JB, I_JNB, I_JZ, I_JNZ, I_JBE, I_JNBE,
+                      I_JS, I_JNS, I_JP, I_JNP, I_JL, I_JNL, I_JLE, I_JNLE ])
+ ++ combine1 (InstructionGroup (zip [0..] aluops)) 0x80
+        ( numbered [ [ OpEb, OpIb], [OpEv, OpIz], [OpEb, OpIb64], [OpEv, OpIb] ] )
+ ++ combine1 (Instruction I_TEST) 0x84 ( numbered [ [OpEb, OpGb], [OpEv, OpGv] ] )
+ ++ combine1 (Instruction I_XCHG) 0x86 ( numbered [ [OpEb, OpGb], [OpEv, OpGv] ] )
+ ++ combine1 (Instruction I_MOV) 0x88 ( numbered [ [OpEb, OpGb], [OpEv, OpGv], [OpGb, OpEb], [OpGv, OpEv] ] )
+ ++ combine0 (Instruction I_MOV [OpEv, OpSw]) 0x8c
+ ++ combine0 (Instruction I_LEA [OpGv, OpM]) 0x8d
+ ++ combine0 (Instruction I_MOV [OpSw, OpEw]) 0x8e
+ ++ combine0 (InstructionGroup [ (0, I_POP) ] [OpEv]) 0x8f
+ ++ combine1 (\r -> Instruction I_XCHG [OpReg r, OpReg' RAX]) 0x90
+        ( numbered (zipWith (\r1 r2 -> [OpReg' r1 r2]) (take 8 genregs) (drop 8 genregs)) )
+ ++ combine0 (SizedInstruction [(16, I_CBW), (32,I_CWDE), (64,I_CDQE)]) 0x98
+ ++ combine0 (SizedInstruction [(16, I_CWD), (32,I_CDQ), (64,I_CQO)]) 0x99
+ ++ combine0 (Instruction I_CALL [OpAp]) 0x9a
+ ++ combine0 (Instruction I_WAIT []) 0x9b
+ ++ combine0 (SizedInstruction64 [(16, I_PUSHF), (64, I_PUSHFQ)]) 0x9c
+ ++ combine0 (SizedInstruction64 [(16, I_POPF), (64, I_POPFQ)]) 0x9d
+ ++ combine0 (Instruction I_SAHF) 0x9e
+ ++ combine0 (Instruction I_LAHF) 0x9f
+ ++ combine1 (Instruction I_MOV) 0xa0
+        (numbered [ [OpRegB RAX, OpOb], [OpReg RAX, OpOv], [OpOb, OpRegB RAX], [OpPv, OpReg RAX] ] )
+ ++ combine0 (Instruction I_MOVSB) 0xa4
+ ++ combine0 (SizedInstruction [(16, I_MOVSW), (32, I_MOVSD), (64, I_MOVSQ)]) 0xa5
+ ++ combine0 (Instruction I_CMPSB) 0xa6
+ ++ combine0 (SizedInstruction [(16, I_CMPSW), (32, I_CMPSD), (64, I_CMPSQ)]) 0xa7
+ ++ combine1 (Instruction I_TEST) 0xa8
+        (numbered [ [OpRegB RAX, OpIb], [OpReg Rax, OpIz] ] )
+ ++ combine0 (Instruction I_STOSB) 0xaa
+ ++ combine0 (SizedInstruction [(16, I_STOSW), (32, I_STOSD), (64, I_STOSQ)]) 0xab
+ ++ combine0 (Instruction I_LODSB) 0xac
+ ++ combine0 (SizedInstruction [(16, I_LODSW), (32, I_LODSD), (64, I_LODSQ)]) 0xad
+ ++ combine0 (Instruction I_SCASB) 0xae
+ ++ combine0 (SizedInstruction [(16, I_SCASW), (32, I_SCASD), (64, I_SCASQ)]) 0xaf
+ ++ combine2 (\o1 o2 -> Instruction I_MOV [o1,o2] ) 0xb0
+        (numbered (zipWith (\r1 r2 -> OpRegB' r) (take 8 genregs) (drop 8 genregs)))
+        (numbered' 3 [OpIb, OpIv])
+ ++ combine1 (InstructionGroup [(0,I_ROL),(1,I_ROR),(2,I_RCL),(3,I_RCR),(4,I_SHL),(5,I_SHR),(7,I_SAR)]) 0xc0
+        (numbered [[OpEb,OpIb],[OpEv,OpIb]])
+ ++ combine0 (Instruction64F I_RET [OpIw]) 0xc2
+ ++ combine0 (Instruction64F I_RET []) 0xc3
+ ++ combine1 (InstructionGroup [(0,I_MOV)]) 0xc6 (numbered [[OpEb, OpIb],[OpEv, OpIz]])
+ ++ combine0 (Instruction I_ENTER [OpIw,OpIb]) 0xc8
+ ++ combine0 (Instruction I_LEAVE []) 0xc9
+ ++ combine0 (Instruction I_RETF [OpIw]) 0xca
+ ++ combine0 (Instruction I_RETF []) 0xcb
+ ++ combine0 (Instruction I_INT3 []) 0xcc
+ ++ combine0 (Instruction I_INT [Ib]) 0xcd
+ ++ combine0 (InstructionSized [(16,I_IRET),(32,I_IRETD),(64,I_IRETQ)] []) 0xcf
+
+opcodeTable :: Map.Map [Word8] Instruction
+opcodeTable = Map.fromList opcodeList
+
+disassemble1' :: DisassemblerState -> Get Instruction
+disassemble1' map ds = do prefixes <- getPrefixes
+                          opcode <- getOpcode
+                          instr <- case Map.lookup opcode opcodeMap of
+                            Nothing -> fail "invalid"
+                            Just i  -> return i
+                          modrm <- case
+
+                          let i = Map.lookup opcode opcodeMap
+                           in case i of Nothing -> fail ""
                           case Map.lookup opcode map of
                               Nothing -> fail "invalid"
                               Just f  -> f opcode ds
