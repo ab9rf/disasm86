@@ -105,9 +105,12 @@ pfxFilter (Instruction _ _ (_:(Op_Mem 64 _ _ _ _ _ _):_)) PrefixO16 = False
 
 -- 67a100000000 -> mov eax, [0x0]
 pfxFilter (Instruction _ I_MOV [Op_Reg (Reg32 _), Op_Mem 32 _ _ _ _ _ _]) PrefixA32 = False
+-- 6748a100000000 -> mov rax, [0x0]
+pfxFilter (Instruction _ I_MOV [Op_Reg (Reg64 _), Op_Mem 64 _ _ _ _ _ _]) PrefixA32 = False
+
 
 pfxFilter (Instruction _ I_ROL [Op_Reg _, Op_Imm _]) PrefixA32 = False
-pfxFilter (Instruction _ I_ADD [Op_Reg _, Op_Imm _]) PrefixA32 = False
+-- pfxFilter (Instruction _ I_ADD [Op_Reg _, Op_Imm _]) PrefixA32 = False
 
 pfxFilter (Instruction _ _ ((Op_Mem _ 64 _ _ _ _ _):_)) PrefixA32 = False
 pfxFilter (Instruction _ _ (_:(Op_Mem _ 64 _ _ _ _ _):_)) PrefixA32 = False

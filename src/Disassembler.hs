@@ -377,7 +377,7 @@ grpfe opcode ds = let bitW = bits 0 1 opcode
                             in case (bitW,op) of
                                 (_,0) -> do (rm, _, op, mod, _) <- modrm ds opWidth; return (Instruction ep I_INC [rm])
                                 (_,1) -> do (rm, _, op, mod, _) <- modrm ds opWidth; return (Instruction ep I_DEC [rm])
-                                (1,2) -> do (rm, _, op, mod, _) <- modrm ds 64; return (Instruction ep I_CALL [Op_Near rm])
+                                (1,2) -> do (rm, _, op, mod, _) <- modrm ds opWidth; return (Instruction ep I_CALL [Op_Near rm])
                                 (1,3) -> do (rm, _, op, mod, _) <- modrm ds opWidth; return (Instruction ep I_CALL [Op_Far rm])
                                 (1,4) -> do (rm, _, op, mod, _) <- modrm ds 64; if (mod == 3) then fail "invalid" else return (Instruction ep I_JMP [Op_Near rm])
                                 (1,5) -> do (rm, _, op, mod, _) <- modrm ds 32; return (Instruction ep I_JMP [Op_Far rm])
@@ -493,15 +493,15 @@ fpu opcode ds = do
                         (5, 0, 0) -> r I_FLD [rm]
                         (5, 0, 3) -> r I_FFREE [rm]
 
-                        (6, 0, 3) -> r I_FIADD [rm]
-                        (6, 0, _) -> r I_FADDP [rm]
-                        (6, 1, _) -> r I_FMULP [rm]
-                        (6, 2, _) -> r I_FCOMP [rm]
-                        (6, 3, _) -> r I_FCOMPP [rm]
-                        (6, 4, _) -> r I_FSUBP [rm]
-                        (6, 5, _) -> r I_FSUBRP [rm]
-                        (6, 6, _) -> r I_FDIVP [rm]
-                        (6, 7, _) -> r I_FDIVRP [rm]
+                        (6, 0, 3) -> r I_FADDP [rm]
+                        (6, 0, _) -> r I_FIADD [rm]
+                        (6, 1, 3) -> r I_FMULP [rm]
+                        (6, 2, 3) -> r I_FCOMP [rm]
+                        (6, 3, 3) -> r I_FCOMPP [rm]
+                        (6, 4, 3) -> r I_FSUBP [rm]
+                        (6, 5, 3) -> r I_FSUBRP [rm]
+                        (6, 6, 3) -> r I_FDIVP [rm]
+                        (6, 7, 3) -> r I_FDIVRP [rm]
 
                         (7, 0, 3) -> r I_FFREEP [fpureg]
                         (7, 0, _) -> r I_FILD [rm]
