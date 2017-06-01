@@ -264,11 +264,12 @@ displ = do  lock <- gets dsLock
 
 pfx :: Disassembler [Prefix]
 pfx = do st <- get
-         let pfx = (if (dsLock st) then [PrefixLock] else [])
-                ++ (if (dsRepNE st) then [PrefixRepNE] else [])
-                ++ (if (dsRep st) then [PrefixRep] else [])
-                ++ (if (dsOpWidthOverride st) then [PrefixO16] else [])
-                ++ (if (dsAdWidthOverride st) then [PrefixA32] else [])
+         let ff a b = if (a st) then [b] else []
+             pfx = (ff dsLock PrefixLock)
+                ++ (ff dsRepNE PrefixRepNE)
+                ++ (ff dsRep PrefixRep)
+                ++ (ff dsOpWidthOverride PrefixO16)
+                ++ (ff dsAdWidthOverride PrefixA32)
                 ++ (maybe [] ((:[]) . PrefixSeg) (dsSegOverride st))
                 ++ (maybe [] ((:[]) . PrefixRex) (dsRex st))
             in pure pfx
@@ -277,7 +278,12 @@ modrm_rm :: Disassembler Operand
 modrm_rm = (gets dsModRM) >>= pure . modRM_rm . fromJust
 
 modrm_reg :: Disassembler Operand
-modrm_reg = (gets dsModRM) >>= pure . Op_Reg . modRM_reg . fromJust
+modrm_reg = do b'reg <- modRM_breg <$> fromJust <$> (gets dsModRM)
+               opWidth <- gets dsOpWidth
+               rexR <- dsRexR
+               rex <- gets dsRex
+               let reg = selectreg b'reg opWidth rexR rex False
+                 in pure $ Op_Reg reg
 
 immed :: Disassembler Operand
 immed = (gets dsImmed) >>= pure . fromJust
