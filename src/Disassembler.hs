@@ -155,7 +155,7 @@ baseOpcode = choice [
         , opcode 0xc9 >> instr "leave" []
         , opcode 0xcb >> instr "retf" []
         , opcode 0xcc >> instr "int3" []
-        , opcode 0xcf >> instr "iretd" []
+        , opcode 0xcf >> forkX (instr "iretw" []) (instr "iretd" []) (instr "iretq" [])
         , opcode 0x84 >> opWidthB >> modrm >> instr "test" [modrm_rm, modrm_reg]
         , opcode 0x85 >> opWidthW >> modrm >> instr "test" [modrm_rm, modrm_reg]
         , opcode 0x86 >> opWidthB >> modrm >> instr "xchg" [modrm_rm, modrm_reg]
@@ -170,12 +170,12 @@ baseOpcode = choice [
         , do opcode 0xd1; opWidthW; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Imm (Immediate 8 1))]
         , do opcode 0xd2; opWidthB; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Reg (Reg8 RCX HalfL))]
         , do opcode 0xd3; opWidthW; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Reg (Reg8 RCX HalfL))]
+        , opcode 0xd7 >> instr "xlatb" []
         , opcode 0xec >> opWidthB >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
         , opcode 0xed >> opWidthW >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
         , opcode 0xee >> opWidthB >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
         , opcode 0xef >> opWidthW >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
-        , opcode
-
+        , opcode 0xf1 >> instr "int1" []
      ]
 
 ext1A i = ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"] !! (fromIntegral (bits 3 3 i))
@@ -195,10 +195,14 @@ ext2A = do i <- modopcode
 opWidthB = opWidthX 8 8 8
 opWidthW = opWidthX 64 32 16
 
+forkX q d w = do o16 <- dsO16
+                 rexW <- dsRexW
+                 case (o16, rexW) of (_, 1) -> q; (True, 0) -> w; (False, 0) -> d
+
 opWidthX q d w = do o16 <- dsO16
                     rexW <- dsRexW
-                    let w = case (o16, rexW) of (_, 1) -> q; (True, 0) -> w; (False, 0) -> d
-                      in modify (\x -> x { dsOpWidth = w })
+                    let ow = case (o16, rexW) of (_, 1) -> q; (True, 0) -> w; (False, 0) -> d
+                      in modify (\x -> x { dsOpWidth = ow })
 
 
 adWidth n1 n2 = dsA32 >>= (\f -> modify (\x -> x { dsAdWidth = if f then n1 else n2 } ) )
