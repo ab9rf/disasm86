@@ -20,7 +20,7 @@ import Data.Word (Word64, Word32, Word16, Word8)
 import Data.Int (Int64)
 import Data.Bits
 import Data.List (find)
-import Data.Maybe (isJust, isNothing, fromJust, listToMaybe, mapMaybe, catMaybes, fromMaybe)
+import Data.Maybe (isJust, isNothing, fromJust, listToMaybe, mapMaybe, catMaybes, fromMaybe, maybeToList)
 import Control.Applicative ( (<|>) )
 import Data.Attoparsec.ByteString.Lazy hiding (take)
 
@@ -129,9 +129,9 @@ baseOpcode = choice [
         , opcode 0x63 >> opWidthW >> modrm >> instr "movsxd" [modrm_reg, modrm_rm]
         , opcode 0x6a >> opWidthB >> imm >> instr "push" [immed]
         , opcode 0x6c >> instr "insb" []
-        , opcode 0x6d >> instr "insd" []
+        , opcode 0x6d >> forkX (fail "invalid") (instr "insd" []) (instr "insw" [])
         , opcode 0x6e >> instr "outsb" []
-        , opcode 0x6f >> instr "outsd" []
+        , opcode 0x6f >> forkX (instr "outsq" []) (instr "outsd" []) (instr "outsw" [])
         , do i <- mask 0xf0 0x70; d <- displ; instr (shortjmp i) [pure d]
         , do r <- mask 0xf8 0x90; instr "xchg" [reg (r .&. 0x07) id, accum]
         , opcode 0x98 >> instr "cwde" []
@@ -160,9 +160,14 @@ baseOpcode = choice [
         , opcode 0x85 >> opWidthW >> modrm >> instr "test" [modrm_rm, modrm_reg]
         , opcode 0x86 >> opWidthB >> modrm >> instr "xchg" [modrm_rm, modrm_reg]
         , opcode 0x87 >> opWidthW >> modrm >> instr "xchg" [modrm_rm, modrm_reg]
+        , opcode 0x88 >> opWidthB >> modrm >> instr "mov" [modrm_rm, modrm_reg]
+        , opcode 0x89 >> opWidthW >> modrm >> instr "mov" [modrm_rm, modrm_reg]
+        , opcode 0x8a >> opWidthB >> modrm >> instr "mov" [modrm_reg, modrm_rm]
+        , opcode 0x8b >> opWidthW >> modrm >> instr "mov" [modrm_reg, modrm_rm]
         , opcode 0xa8 >> opWidthB >> imm >> instr "test" [accum, immed]
         , opcode 0xa9 >> opWidthW >> imm >> instr "test" [accum, immed]
         , do r <- mask 0xf8 0xb0; opWidthB; imm; instr "mov" [reg (r .&. 0x07) id, immed]
+        , do r <- mask 0xf8 0xb8; opWidthW; imm; instr "mov" [reg (r .&. 0x07) id, immed]
         , opcode 0x68 >> opWidthW >> imm >> instr "push" [immed]
         , opcode 0xcd >> opWidthB >> imm >> instr "int" [immed]
         , opcode 0xec >> opWidthB >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
@@ -176,6 +181,7 @@ baseOpcode = choice [
         , opcode 0xee >> opWidthB >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
         , opcode 0xef >> opWidthW >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
         , opcode 0xf1 >> instr "int1" []
+        , opcode 0xf4 >> instr "hlt" []
      ]
 
 ext1A i = ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"] !! (fromIntegral (bits 3 3 i))
@@ -236,7 +242,15 @@ displ = do  lock <- gets dsLock
               in pure (Op_Jmp imm)
 
 pfx :: Disassembler [Prefix]
-pfx = pure []
+pfx = do st <- get
+         let pfx = (if (dsLock st) then [PrefixLock] else [])
+                ++ (if (dsRepNE st) then [PrefixRepNE] else [])
+                ++ (if (dsRep st) then [PrefixRep] else [])
+                ++ (if (dsOpWidthOverride st) then [PrefixO16] else [])
+                ++ (if (dsAdWidthOverride st) then [PrefixA32] else [])
+                ++ (maybe [] ((:[]) . PrefixSeg) (dsSegOverride st))
+                ++ (maybe [] ((:[]) . PrefixRex) (dsRex st))
+            in pure pfx
 
 modrm_rm :: Disassembler Operand
 modrm_rm = (gets dsModRM) >>= pure . modRM_rm . fromJust
