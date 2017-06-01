@@ -126,6 +126,7 @@ baseOpcode = choice [
         , do r <- mask 0xf8 0x50; opWidthX 64 64 16; instr "push" [reg (r .&. 0x07) id]
         , do r <- mask 0xf8 0x58; opWidthX 64 64 16; instr "pop" [reg (r .&. 0x07) id]
         , do opcode 0x80; opWidthB; modrm; i <- modopcode; imm; instr (ext1A i) [modrm_rm, immed]
+        , do opcode 0x81; opWidthW; modrm; i <- modopcode; imm; instr (ext1A i) [modrm_rm, immed]
         , opcode 0x63 >> opWidthW >> modrm >> instr "movsxd" [modrm_reg, modrm_rm]
         , opcode 0x6a >> opWidthB >> imm >> instr "push" [immed]
         , opcode 0x6c >> instr "insb" []
@@ -133,7 +134,7 @@ baseOpcode = choice [
         , opcode 0x6e >> instr "outsb" []
         , opcode 0x6f >> forkX (instr "outsq" []) (instr "outsd" []) (instr "outsw" [])
         , do i <- mask 0xf0 0x70; d <- displ; instr (shortjmp i) [pure d]
-        , do r <- mask 0xf8 0x90; instr "xchg" [reg (r .&. 0x07) id, accum]
+        , do r <- mask 0xf8 0x90; opWidthW; instr "xchg" [reg (r .&. 0x07) id, accum]
         , opcode 0x98 >> instr "cwde" []
         , opcode 0x99 >> instr "cdq" []
         , opcode 0x9b >> instr "wait" []
@@ -169,10 +170,13 @@ baseOpcode = choice [
         , do r <- mask 0xf8 0xb0; opWidthB; imm; instr "mov" [reg (r .&. 0x07) id, immed]
         , do r <- mask 0xf8 0xb8; opWidthW; imm; instr "mov" [reg (r .&. 0x07) id, immed]
         , opcode 0x68 >> opWidthW >> imm >> instr "push" [immed]
+        , opcode 0xca >> opWidthF 16 >> imm >> instr "retf" [immed]
         , opcode 0xcd >> opWidthB >> imm >> instr "int" [immed]
         , opcode 0xec >> opWidthB >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
-        , do opcode 0xd0; opWidthB; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Imm (Immediate 8 1))]
-        , do opcode 0xd1; opWidthW; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Imm (Immediate 8 1))]
+        , do opcode 0xc0; opWidthB; modrm; i <- ext2A; immB; instr i [modrm_rm, immed]
+        , do opcode 0xc1; opWidthW; modrm; i <- ext2A; immB; instr i [modrm_rm, immed]
+        , do opcode 0xd0; opWidthB; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Const 1)]
+        , do opcode 0xd1; opWidthW; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Const 1)]
         , do opcode 0xd2; opWidthB; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Reg (Reg8 RCX HalfL))]
         , do opcode 0xd3; opWidthW; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Reg (Reg8 RCX HalfL))]
         , opcode 0xd7 >> instr "xlatb" []
@@ -182,6 +186,16 @@ baseOpcode = choice [
         , opcode 0xef >> opWidthW >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
         , opcode 0xf1 >> instr "int1" []
         , opcode 0xf4 >> instr "hlt" []
+        , opcode 0xd8 >> modrmFpu >> opcodematch 0 >> opWidthF 32 >> instr "fadd" [modrm_rm]
+        , opcode 0xd8 >> modrmFpu >> opcodematch 1 >> opWidthF 32 >> instr "fmul" [modrm_rm]
+        , opcode 0xd9 >> modrmFpu >> opcodematch 0 >> opWidthF 32 >> instr "fld" [modrm_rm]
+        , opcode 0xda >> modrmFpu >> opcodematch 0 >> opWidthF 32 >> instr "fiadd" [modrm_rm]
+        , opcode 0xdb >> modrmFpu >> opcodematch 0 >> opWidthF 32 >> instr "fild" [modrm_rm]
+        , opcode 0xdc >> modrmFpu >> opcodematch 0 >> opWidthF 64 >> instr "fadd" [modrm_rm]
+        , opcode 0xf5 >> instr "cmc" []
+        , opcode 0xf8 >> instr "clc" []
+        , opcode 0xf9 >> instr "stc" []
+        , opcode 0x69 >> modrm >> opWidthW >> imm >> instr "imul" [modrm_reg, modrm_rm, immed]
      ]
 
 ext1A i = ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"] !! (fromIntegral (bits 3 3 i))
@@ -200,6 +214,7 @@ ext2A = do i <- modopcode
 
 opWidthB = opWidthX 8 8 8
 opWidthW = opWidthX 64 32 16
+opWidthF n = opWidthX n n n
 
 forkX q d w = do o16 <- dsO16
                  rexW <- dsRexW
@@ -222,6 +237,8 @@ readBytes n = (lift $ (B.fromStrict <$> A.take n)) <* adv n
 modopcode :: Disassembler Word8
 modopcode = (gets dsModRM) >>= pure . modRM_breg . fromJust
 
+opcodematch c = do o <- modopcode; if o == c then pure () else fail "no match"
+
 imm :: Disassembler ()
 imm = do
     ow <- gets dsOpWidth
@@ -230,6 +247,10 @@ imm = do
                 32 -> (readBytes 4) >>= pure . (\s -> fromIntegral (G.runGet G.getWord32le (s)))
                 64 -> (readBytes 4) >>= pure . (\s -> fromIntegral (G.runGet G.getWord32le (s)))
       >>= \i -> modify (\x -> x { dsImmed = Just $ Op_Imm (Immediate ow (i)) } )
+
+immB :: Disassembler ()
+immB = (readBytes 1) >>= pure . (\s -> fromIntegral (G.runGet G.getWord8 (s)))
+                     >>= \i -> modify (\x -> x { dsImmed = Just $ Op_Imm (Immediate 8 (i)) } )
 
 displ :: Disassembler Operand
 displ = do  lock <- gets dsLock
@@ -301,7 +322,10 @@ dsSeg = gets dsSegOverride
 -- dsSeg ds = listToMaybe (catMaybes (map (\p -> case p of (PrefixSeg s) -> Just s; _ -> Nothing) (dsPfx ds)))
 
 modrm :: Disassembler ()
-modrm = do
+modrm = modrm' False
+modrmFpu = modrm' True
+
+modrm' fpu = do
     val      <- (lift $ anyWord8) <* adv 1
     aWidth   <- dsA32 >>= pure . (\x -> if x then 32 :: Int else 64 :: Int)
     rex      <- gets dsRex
@@ -309,7 +333,6 @@ modrm = do
     rexX     <- dsRexX
     rexB     <- dsRexB
     opWidth  <- gets dsOpWidth
-    fpu      <- pure False
     so       <- dsSeg
     let b'mod = bits 6 2 val
         b'reg = bits 3 3 val
