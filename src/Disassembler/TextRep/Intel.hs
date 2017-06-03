@@ -51,6 +51,7 @@ pfxFilter (Instruction [PrefixRep] (Operation "pause") []) PrefixRep = False
 pfxFilter (Instruction _ (Operation "movsb") _) (PrefixSeg _) = True
 pfxFilter (Instruction _ (Operation "movsw") _) (PrefixSeg _) = True
 pfxFilter (Instruction _ (Operation "movsd") _) (PrefixSeg _) = True
+pfxFilter (Instruction _ (Operation "movsq") _) (PrefixSeg _) = True
 pfxFilter (Instruction _ (Operation "stosb") _) (PrefixSeg _) = True
 pfxFilter (Instruction _ (Operation "stosw") _) (PrefixSeg _) = True
 pfxFilter (Instruction _ (Operation "stosd") _) (PrefixSeg _) = True
@@ -65,7 +66,9 @@ pfxFilter (Instruction _ (Operation "cqo") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "cdqe") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "pushfq") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "outsw") _) PrefixO16 = False
+pfxFilter (Instruction _ (Operation "cmpsw") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "outsq") _) PrefixO16 = False
+pfxFilter (Instruction _ (Operation "cmpsq") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "stosw") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "stosq") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "movsw") _) PrefixO16 = False
@@ -81,7 +84,11 @@ pfxFilter (Instruction _ (Operation "push") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "pop") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "popfq") _) PrefixO16 = False
 
+pfxFilter (Instruction _ (Operation "fstp") _) PrefixO16 = True
+pfxFilter (Instruction _ (Operation "fidiv") _) PrefixO16 = True
+
 pfxFilter (Instruction _ (Operation "in") _) PrefixA32 = True
+pfxFilter (Instruction _ (Operation "out") _) PrefixA32 = True
 pfxFilter (Instruction _ (Operation "in") [Op_Reg (Reg8 RAX HalfL), Op_Reg _]) PrefixO16 = True
 pfxFilter (Instruction _ (Operation "in") [Op_Reg (Reg16 RAX), Op_Reg _]) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "out") [Op_Reg _, Op_Reg (Reg8 RAX HalfL)]) PrefixO16 = True
@@ -111,6 +118,7 @@ pfxFilter (Instruction _ (Operation "mov") [Op_Reg (Reg64 _), Op_Mem 64 _ _ _ _ 
 
 
 pfxFilter (Instruction _ (Operation "rol") [Op_Reg _, Op_Imm _]) PrefixA32 = False
+pfxFilter (Instruction _ (Operation "shl") [Op_Reg _, Op_Imm _]) PrefixA32 = False
 -- pfxFilter (Instruction _ (Operation "add") [Op_Reg _, Op_Imm _]) PrefixA32 = False
 
 pfxFilter (Instruction _ _ ((Op_Mem _ 64 _ _ _ _ _):_)) PrefixA32 = False
@@ -141,7 +149,7 @@ isAmbiguousSizeInstr (Instruction _ (Operation "shr") [Op_Mem 8 _ _ _ _ _ _,Op_R
 isAmbiguousSizeInstr (Instruction _ (Operation "shr") [_,Op_Reg (Reg8 RCX HalfL)]) = True
 isAmbiguousSizeInstr (Instruction _ (Operation "sar") [Op_Mem 32 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = True
 isAmbiguousSizeInstr (Instruction _ (Operation "sar") [Op_Mem 16 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = True
-isAmbiguousSizeInstr (Instruction _ (Operation "sar") [Op_Mem 8 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = False
+isAmbiguousSizeInstr (Instruction _ (Operation "sar") [Op_Mem 8 _ _ _ _ _ _,Op_Reg (Reg8 RCX HalfL)]) = True
 isAmbiguousSizeInstr (Instruction _ (Operation "sar") [_,Op_Reg (Reg8 RCX HalfL)]) = True
 isAmbiguousSizeInstr (Instruction _ (Operation "int") _) = False
 isAmbiguousSizeInstr (Instruction _ (Operation "ret") _) = False

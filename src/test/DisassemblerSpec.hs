@@ -14,6 +14,7 @@ import Data.List (intercalate, (\\), union)
 import Data.Bits ((.&.))
 import Data.Char (toLower)
 import Numeric (showHex)
+import Control.Applicative (liftA2)
 
 import Hdis86
 
@@ -34,7 +35,7 @@ spec = do
         mapM_
             (\bs -> let t = makeTest' 0 bs
                          in it (show t) $ testdis t `shouldBe` refValue t)
-            statictests
+            (liftA2 (++) allprefix statictests)
 
 --     describe "prefixes" $ do
 --         mapM_
@@ -113,6 +114,7 @@ instance Arbitrary TPad    where arbitrary = TPad <$> elements [0x00..0xff]
 instance Arbitrary Test    where
     arbitrary = makeTest <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
     shrink (Test bs 0 _ _) = []
+    shrink (Test bs 1 _ _) = []
     shrink (Test bs i _ _) = map (makeTest' (i-1)) (shrink (B.unpack bs))
 
 type Test' = [Word8]
@@ -141,7 +143,8 @@ testdis t = intercalate "\n" (map DTI.textrep (take 1 (fst (D.disassemble 0x1000
 ----
 
 statictests = map toBS [
-      "0000"
+         "0000"
+       , "9c"
 --     , "d8c0"
 --     , "6300"
 --     , "666300"
