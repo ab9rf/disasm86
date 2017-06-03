@@ -32,9 +32,16 @@ spec = do
             , B.empty)
     describe "static disassembly tests" $ do
         mapM_
-            (\bs -> let t = makeTest' bs
+            (\bs -> let t = makeTest' 0 bs
                          in it (show t) $ testdis t `shouldBe` refValue t)
             statictests
+
+--     describe "prefixes" $ do
+--         mapM_
+--             (\p -> let t = makeTest (TPrefix p) (TOpcode [0x00]) (TSuffix [0x00]) (TPad 0x00)
+--                 in it (show t) $ testdis t `shouldBe` refValue t)
+--             allprefix
+
     describe "quickcheck tests" $ do
         it "matches reference (a)" $ property $ \t -> testdis t `shouldBe` refValue t
 
@@ -71,7 +78,7 @@ allmodrm = let
         wrap l = [] : map (:[]) l
         tbPfx = [ 0x0f ]
         rexPfx = [ 0x40..0x4f ]
-        insPfx = [ 0xf0, 0xf2, 0xf3, 0x9b]
+        insPfx = [ 0xf0, 0xf2, 0xf3 ]
         adPfx = [ 0x67 ]
         opPfx = [ 0x66 ]
         sgPfx = [ 0x26, 0x2e, 0x36, 0x3e, 0x64, 0x65 ]
@@ -88,12 +95,13 @@ data TPad = TPad ( Word8 )
 
 data Test = Test {
       bytes     :: B.ByteString
+    , shrinkLim :: Int
     , descr     :: String
     , refValue  :: String
     }
     deriving (Eq)
 
-instance Show Test where show (Test _ d r) = d ++ " -> " ++ r
+instance Show Test where show (Test _ _ d r) = d ++ " -> " ++ r
 
 instance Arbitrary TPrefix where
     arbitrary = TPrefix <$> elements (allprefix)
@@ -104,16 +112,17 @@ instance Arbitrary TSuffix where arbitrary = TSuffix <$> elements (allmodrm)
 instance Arbitrary TPad    where arbitrary = TPad <$> elements [0x00..0xff]
 instance Arbitrary Test    where
     arbitrary = makeTest <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-    shrink (Test bs _ _) = map makeTest' (shrink (B.unpack bs))
+    shrink (Test bs 0 _ _) = []
+    shrink (Test bs i _ _) = map (makeTest' (i-1)) (shrink (B.unpack bs))
 
 type Test' = [Word8]
 
-makeTest (TPrefix p) (TOpcode o) (TSuffix r) (TPad pad) = makeTest' (take 15 (p ++ o ++ r ++ (replicate 15 pad)))
+makeTest (TPrefix p) (TOpcode o) (TSuffix r) (TPad pad) = makeTest' ((length p) + (length o)) (take 15 (p ++ o ++ r ++ (replicate 15 pad)))
 
 hexstring bs = B.foldr s "" bs
     where s b = if b > 15 then showHex b else ('0':).(showHex b)
 
-makeTest' bs = let
+makeTest' sl bs = let
         bytes = B.pack bs
         cfg = Config Intel Mode64 SyntaxIntel (0x1000 :: Word64)
         dm = disassembleMetadata cfg (B.toStrict bytes)
@@ -125,7 +134,7 @@ makeTest' bs = let
                          last7 = reverse (take 7 (reverse ref'))
                       in case last7 of "invalid" -> ""
                                        _         -> (map toLower ref')
-      in Test bytes descr ref
+      in Test bytes sl descr ref
 
 testdis t = intercalate "\n" (map DTI.textrep (take 1 (fst (D.disassemble 0x1000 (bytes t)))))
 

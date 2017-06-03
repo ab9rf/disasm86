@@ -46,7 +46,6 @@ pfxOrder PrefixA32 = -1
 pfxOrder _ = 9
 
 
-pfxFilter _ (PrefixRex _) = False
 pfxFilter (Instruction [PrefixRep] (Operation "pause") []) PrefixRep = False
 
 pfxFilter (Instruction _ (Operation "movsb") _) (PrefixSeg _) = True
@@ -85,6 +84,8 @@ pfxFilter (Instruction _ (Operation "popfq") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "in") _) PrefixA32 = True
 pfxFilter (Instruction _ (Operation "in") [Op_Reg (Reg8 RAX HalfL), Op_Reg _]) PrefixO16 = True
 pfxFilter (Instruction _ (Operation "in") [Op_Reg (Reg16 RAX), Op_Reg _]) PrefixO16 = False
+pfxFilter (Instruction _ (Operation "out") [Op_Reg _, Op_Reg (Reg8 RAX HalfL)]) PrefixO16 = True
+pfxFilter (Instruction _ (Operation "out") [Op_Reg _, Op_Reg (Reg16 RAX)]) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "xchg") [Op_Reg _, Op_Reg _]) PrefixA32 = True
 
 pfxFilter (Instruction _ (Operation "insw") _) PrefixO16 = False

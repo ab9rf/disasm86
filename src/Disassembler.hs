@@ -58,6 +58,7 @@ data DisassemblerState = DisassemblerState {
     , dsAdWidth :: Int
     , dsModRM :: Maybe ModRM
     , dsImmed :: Maybe Operand
+    , dsMoffset :: Maybe Operand
 }
 
 dsInitial ofs = DisassemblerState { dsOffset = ofs,
@@ -67,7 +68,7 @@ dsInitial ofs = DisassemblerState { dsOffset = ofs,
                                     dsOpWidthOverride = False,
                                     dsAdWidthOverride = False,
                                     dsOpWidth = 32, dsAdWidth = 64,
-                                    dsModRM = Nothing, dsImmed = Nothing
+                                    dsModRM = Nothing, dsImmed = Nothing, dsMoffset = Nothing
                                   }
 
 adv :: Int -> Disassembler ()
@@ -117,96 +118,149 @@ rex = do o <- mask 0xf0 0x40
 
 baseOpcode :: Disassembler Instruction
 baseOpcode = choice [
-          do i <- mask 0xc7 0x00; opWidthB; modrm; instr (ext1A i) [modrm_rm, modrm_reg]
-        , do i <- mask 0xc7 0x01; opWidthW; modrm; instr (ext1A i) [modrm_rm, modrm_reg]
-        , do i <- mask 0xc7 0x02; opWidthB; modrm; instr (ext1A i) [modrm_reg, modrm_rm]
-        , do i <- mask 0xc7 0x03; opWidthW; modrm; instr (ext1A i) [modrm_reg, modrm_rm]
-        , do i <- mask 0xc7 0x04; opWidthB;   imm; instr (ext1A i) [accum, immed]
-        , do i <- mask 0xc7 0x05; opWidthW;   imm; instr (ext1A i) [accum, immed]
-        , do r <- mask 0xf8 0x50; opWidthX 64 64 16; instr "push" [reg (r .&. 0x07) id]
-        , do r <- mask 0xf8 0x58; opWidthX 64 64 16; instr "pop" [reg (r .&. 0x07) id]
-        , do opcode 0x80; opWidthB; modrm; i <- modopcode; imm; instr (ext1A i) [modrm_rm, immed]
-        , do opcode 0x81; opWidthW; modrm; i <- modopcode; imm; instr (ext1A i) [modrm_rm, immed]
-        , opcode 0x8c >> opWidthW >> modrm >> instr "mov" [modrm_rm, modrm_sreg]
-        , opcode 0x63 >> opWidthW >> modrm >> instr "movsxd" [modrm_reg, modrm_rm]
-        , opcode 0x6a >> opWidthB >> imm >> instr "push" [immed]
-        , opcode 0x6b >> opWidthW >> modrm >> immB >> instr "imul" [modrm_reg, modrm_rm, immed]
-        , opcode 0x6c >> instr "insb" []
-        , opcode 0x6d >> forkX (fail "invalid") (instr "insd" []) (instr "insw" [])
-        , opcode 0x6e >> instr "outsb" []
-        , opcode 0x6f >> forkX (instr "outsq" []) (instr "outsd" []) (instr "outsw" [])
-        , do i <- mask 0xf0 0x70; d <- displ; instr (shortjmp i) [pure d]
-        , do opcode 0xe0; d <- displ; instr "loopnz" [pure d]
-        , do opcode 0xe1; d <- displ; instr "loope" [pure d]
-        , do r <- mask 0xf8 0x90; opWidthW; instr "xchg" [reg (r .&. 0x07) id, accum]
-        , opcode 0x98 >> forkX (instr "cdqe" []) (instr "cwde" []) (instr "cbw" [])
-        , opcode 0x99 >> instr "cdq" []
-        , opcode 0x9b >> instr "wait" []
-        , opcode 0x9c >> instr "pushfq" []
-        , opcode 0x9d >> instr "popfq" []
-        , opcode 0x9e >> instr "sahf" []
-        , opcode 0x9f >> instr "lahf" []
-        , opcode 0xa4 >> instr "movsb" []
-        , opcode 0xa5 >> forkX (instr "movsq" []) (instr "movsd" []) (instr "movsw" [])
-        , opcode 0xa6 >> instr "cmpsb" []
-        , opcode 0xa7 >> instr "cmpsd" []
-        , opcode 0xaa >> instr "stosb" []
-        , opcode 0xab >> forkX (instr "stosq" []) (instr "stosd" []) (instr "stosw" [])
-        , opcode 0xac >> instr "lodsb" []
-        , opcode 0xad >> instr "lodsd" []
-        , opcode 0xae >> instr "scasb" []
-        , opcode 0xaf >> instr "scasd" []
-        , opcode 0xc2 >> immW >> instr "ret" [immed]
-        , opcode 0xc3 >> instr "ret" []
-        , opcode 0xc9 >> instr "leave" []
-        , opcode 0xcb >> instr "retf" []
-        , opcode 0xcc >> instr "int3" []
-        , opcode 0xcf >> forkX (instr "iretw" []) (instr "iretd" []) (instr "iretq" [])
-        , opcode 0x84 >> opWidthB >> modrm >> instr "test" [modrm_rm, modrm_reg]
-        , opcode 0x85 >> opWidthW >> modrm >> instr "test" [modrm_rm, modrm_reg]
-        , opcode 0x86 >> opWidthB >> modrm >> instr "xchg" [modrm_rm, modrm_reg]
-        , opcode 0x87 >> opWidthW >> modrm >> instr "xchg" [modrm_rm, modrm_reg]
-        , opcode 0x88 >> opWidthB >> modrm >> instr "mov" [modrm_rm, modrm_reg]
-        , opcode 0x89 >> opWidthW >> modrm >> instr "mov" [modrm_rm, modrm_reg]
-        , opcode 0x8a >> opWidthB >> modrm >> instr "mov" [modrm_reg, modrm_rm]
-        , opcode 0x8b >> opWidthW >> modrm >> instr "mov" [modrm_reg, modrm_rm]
-        , opcode 0xa8 >> opWidthB >> imm >> instr "test" [accum, immed]
-        , opcode 0xa9 >> opWidthW >> imm >> instr "test" [accum, immed]
-        , do r <- mask 0xf8 0xb0; opWidthB; imm; instr "mov" [reg (r .&. 0x07) id, immed]
-        , do r <- mask 0xf8 0xb8; opWidthW; imm; instr "mov" [reg (r .&. 0x07) id, immed]
-        , opcode 0x68 >> opWidthW >> imm >> instr "push" [immed]
-        , opcode 0xca >> opWidthF 16 >> imm >> instr "retf" [immed]
-        , opcode 0xcd >> opWidthB >> imm >> instr "int" [immed]
-        , opcode 0xec >> opWidthB >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
-        , do opcode 0xc0; opWidthB; modrm; i <- ext2A; immB; instr i [modrm_rm, immed]
-        , do opcode 0xc1; opWidthW; modrm; i <- ext2A; immB; instr i [modrm_rm, immed]
-        , do opcode 0xd0; opWidthB; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Const 1)]
-        , do opcode 0xd1; opWidthW; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Const 1)]
-        , do opcode 0xd2; opWidthB; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Reg (Reg8 RCX HalfL))]
-        , do opcode 0xd3; opWidthW; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Reg (Reg8 RCX HalfL))]
-        , opcode 0xd7 >> instr "xlatb" []
-        , opcode 0xec >> opWidthB >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
-        , opcode 0xed >> opWidthW >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
-        , opcode 0xee >> opWidthB >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
-        , opcode 0xef >> opWidthW >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
-        , opcode 0xf1 >> instr "int1" []
-        , opcode 0xf4 >> instr "hlt" []
-        , opcode 0xd8 >> modrm >> opcodematch 0 >> opWidthF 32 >> instr "fadd" [modrm_rm]
-        , opcode 0xd8 >> modrm >> opcodematch 1 >> opWidthF 32 >> instr "fmul" [modrm_rm]
-        , opcode 0xd9 >> modrm >> opcodematch 0 >> opWidthF 32 >> instr "fld" [modrm_rm]
-        , opcode 0xda >> modrm >> opcodematch 0 >> opWidthF 32 >> instr "fiadd" [modrm_rm]
-        , opcode 0xdb >> modrm >> opcodematch 0 >> opWidthF 32 >> instr "fild" [modrm_rm]
-        , opcode 0xdc >> modrm >> opcodematch 0 >> opWidthF 64 >> instr "fadd" [modrm_rm]
-        , opcode 0xdd >> modrm >> opcodematch 0 >> opWidthF 64 >> instr "fld" [modrm_rm]
-        , opcode 0xde >> modrm >> opcodematch 0 >> opWidthF 16 >> instr "fiadd" [modrm_rm]
-        , opcode 0xdf >> modrm >> opcodematch 0 >> opWidthF 16 >> instr "fild" [modrm_rm]
-        , opcode 0xf5 >> instr "cmc" []
-        , opcode 0xf8 >> instr "clc" []
-        , opcode 0xf9 >> instr "stc" []
-        , opcode 0x69 >> modrm >> opWidthW >> imm >> instr "imul" [modrm_reg, modrm_rm, immed]
+		  fail "dunsel"
+-- 0x00
+                , do i <- mask 0xc7 0x00; opWidthB; modrm; instr (ext1A' i) [modrm_rm, modrm_reg]
+                , do i <- mask 0xc7 0x01; opWidthW; modrm; instr (ext1A' i) [modrm_rm, modrm_reg]
+                , do i <- mask 0xc7 0x02; opWidthB; modrm; instr (ext1A' i) [modrm_reg, modrm_rm]
+                , do i <- mask 0xc7 0x03; opWidthW; modrm; instr (ext1A' i) [modrm_reg, modrm_rm]
+                , do i <- mask 0xc7 0x04; opWidthB;   imm; instr (ext1A' i) [accum, immed]
+                , do i <- mask 0xc7 0x05; opWidthW;   imm; instr (ext1A' i) [accum, immed]
+-- 0x40 (REX prefixes handled above)
+-- 0x50
+                , do r <- mask 0xf8 0x50; opWidthX 64 64 16; instr "push" [reg (r .&. 0x07) id]
+                , do r <- mask 0xf8 0x58; opWidthX 64 64 16; instr "pop" [reg (r .&. 0x07) id]
+-- 0x60
+                , opcode 0x63 >> opWidthW >> modrm >> instr "movsxd" [modrm_reg, opWidthF 32 >> modrm_rm]
+                , opcode 0x68 >> opWidthW >> imm >> instr "push" [immed]
+                , opcode 0x69 >> modrm >> opWidthW >> imm >> instr "imul" [modrm_reg, modrm_rm, immed]
+                , opcode 0x6a >> opWidthB >> imm >> instr "push" [immed]
+                , opcode 0x6b >> opWidthW >> modrm >> immB >> instr "imul" [modrm_reg, modrm_rm, immed]
+                , opcode 0x6c >> instr "insb" []
+                , opcode 0x6d >> forkX (fail "invalid") (instr "insd" []) (instr "insw" [])
+                , opcode 0x6e >> instr "outsb" []
+                , opcode 0x6f >> forkX (instr "outsq" []) (instr "outsd" []) (instr "outsw" [])
+-- 0x70
+                , do i <- mask 0xf0 0x70; d <- displ; instr (shortjmp i) [pure d]
+-- 0x80
+                , do opcode 0x80; opWidthB; modrm; i <- modopcode; imm; instr (ext1A i) [modrm_rm, immed]
+                , do opcode 0x81; opWidthW; modrm; i <- modopcode; imm; instr (ext1A i) [modrm_rm, immed]
+                , do opcode 0x83; opWidthW; modrm; i <- modopcode; immB; instr (ext1A i) [modrm_rm, immed]
+                , opcode 0x84 >> opWidthB >> modrm >> instr "test" [modrm_rm, modrm_reg]
+                , opcode 0x85 >> opWidthW >> modrm >> instr "test" [modrm_rm, modrm_reg]
+                , opcode 0x86 >> opWidthB >> modrm >> instr "xchg" [modrm_rm, modrm_reg]
+                , opcode 0x87 >> opWidthW >> modrm >> instr "xchg" [modrm_rm, modrm_reg]
+                , opcode 0x88 >> opWidthB >> modrm >> instr "mov" [modrm_rm, modrm_reg]
+                , opcode 0x89 >> opWidthW >> modrm >> instr "mov" [modrm_rm, modrm_reg]
+                , opcode 0x8a >> opWidthB >> modrm >> instr "mov" [modrm_reg, modrm_rm]
+                , opcode 0x8b >> opWidthW >> modrm >> instr "mov" [modrm_reg, modrm_rm]
+                , opcode 0x8c >> opWidthW >> modrm >> instr "mov" [modrm_rm, modrm_sreg]
+                , opcode 0x8d >> opWidthW >> modrm >> instr "lea" [modrm_reg, modrm_rm]
+                , opcode 0x8e >> opWidthW >> modrm >> instr "mov" [modrm_sreg, modrm_rm]
+                , opcode 0x8f >> modrm >> opcodematch 0 >> opWidthF 64 >> instr "pop" [modrm_rm]
+-- 0x90
+                , do r <- mask 0xf8 0x90; opWidthW; instr "xchg" [reg (r .&. 0x07) id, accum]
+                , opcode 0x98 >> forkX (instr "cdqe" []) (instr "cwde" []) (instr "cbw" [])
+                , opcode 0x99 >> forkX (instr "cqo" [])  (instr "cdq" [])  (instr "cwd" [])
+                , opcode 0x9b >> instr "wait" []
+                , opcode 0x9c >> forkX (instr "pushfq" []) (instr "pushfq" []) (instr "pushf" [])
+                , opcode 0x9d >> forkX (instr "popfq" []) (instr "popfq" []) (instr "popf" [])
+                , opcode 0x9e >> instr "sahf" []
+                , opcode 0x9f >> instr "lahf" []
+-- 0xa0
+                , opcode 0xa0 >> opWidthB >> moffs >> instr "mov" [accum, moffset]
+                , opcode 0xa1 >> opWidthW >> moffs >> instr "mov" [accum, moffset]
+                , opcode 0xa2 >> opWidthB >> moffs >> instr "mov" [moffset, accum]
+                , opcode 0xa3 >> opWidthW >> moffs >> instr "mov" [moffset, accum]
+                , opcode 0xa4 >> instr "movsb" []
+                , opcode 0xa5 >> forkX (instr "movsq" []) (instr "movsd" []) (instr "movsw" [])
+                , opcode 0xa6 >> instr "cmpsb" []
+                , opcode 0xa7 >> forkX (instr "cmpsq" []) (instr "cmpsd" []) (instr "cmpsw" [])
+                , opcode 0xa8 >> opWidthB >> imm >> instr "test" [accum, immed]
+                , opcode 0xa9 >> opWidthW >> imm >> instr "test" [accum, immed]
+                , opcode 0xaa >> instr "stosb" []
+                , opcode 0xab >> forkX (instr "stosq" []) (instr "stosd" []) (instr "stosw" [])
+                , opcode 0xac >> instr "lodsb" []
+                , opcode 0xad >> forkX (instr "lodsq" []) (instr "lodsd" []) (instr "lodsw" [])
+                , opcode 0xae >> instr "scasb" []
+                , opcode 0xaf >> forkX (instr "scasq" []) (instr "scasd" []) (instr "scasw" [])
+-- 0xb0
+                , do r <- mask 0xf8 0xb0; opWidthB; imm; instr "mov" [reg (r .&. 0x07) id, immed]
+                , do r <- mask 0xf8 0xb8; opWidthW; imm; instr "mov" [reg (r .&. 0x07) id, immed]
+-- 0xc0
+                , do opcode 0xc0; opWidthB; modrm; i <- ext2A; immB; instr i [modrm_rm, immed]
+                , do opcode 0xc1; opWidthW; modrm; i <- ext2A; immB; instr i [modrm_rm, immed]
+                , opcode 0xc2 >> immW >> instr "ret" [immed]
+                , opcode 0xc3 >> instr "ret" []
+                , opcode 0xc6 >> opcode 0xf8 >> immB >> instr "xabort" [immed]
+                , opcode 0xc6 >> modrm >> opcodematch 0 >> opWidthB >> imm >> instr "mov" [modrm_rm, immed]
+                , opcode 0xc7 >> opcode 0xf8 >> immB >> instr "xflush" [immed]
+                , opcode 0xc7 >> modrm >> opcodematch 0 >> opWidthW >> imm >> instr "mov" [modrm_rm, immed]
+                , opcode 0xc9 >> instr "leave" []
+                , opcode 0xca >> opWidthF 16 >> imm >> instr "retf" [immed]
+                , opcode 0xcb >> instr "retf" []
+                , opcode 0xcc >> instr "int3" []
+                , opcode 0xcd >> opWidthB >> imm >> instr "int" [immed]
+                , opcode 0xcf >> forkX (instr "iretw" []) (instr "iretd" []) (instr "iretq" [])
+-- 0xd0
+                , do opcode 0xd0; opWidthB; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Const 1)]
+                , do opcode 0xd1; opWidthW; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Const 1)]
+                , do opcode 0xd2; opWidthB; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Reg (Reg8 RCX HalfL))]
+                , do opcode 0xd3; opWidthW; modrm; i <- ext2A; instr i [modrm_rm, pure (Op_Reg (Reg8 RCX HalfL))]
+                , opcode 0xd7 >> instr "xlatb" []
+                , do opcode 0xd8; r <- mask 0xf8 0xc0; instr "fld" [pure (Op_Reg (RegFPU ST0)), freg (r .&. 7)]
+                , opcode 0xd8 >> modrm >> opcodematch 0 >> opWidthF 32 >> instr "fadd" [modrm_rm]
+                , opcode 0xd8 >> modrm >> opcodematch 1 >> opWidthF 32 >> instr "fmul" [modrm_rm]
+                , opcode 0xd9 >> modrm >> opcodematch 0 >> opWidthF 32 >> instr "fld" [modrm_rm]
+                , opcode 0xda >> modrm >> opcodematch 0 >> opWidthF 32 >> instr "fiadd" [modrm_rm]
+                , opcode 0xdb >> modrm >> opcodematch 0 >> opWidthF 32 >> instr "fild" [modrm_rm]
+                , opcode 0xdc >> modrm >> opcodematch 0 >> opWidthF 64 >> instr "fadd" [modrm_rm]
+                , opcode 0xdd >> modrm >> opcodematch 0 >> opWidthF 64 >> instr "fld" [modrm_rm]
+                , opcode 0xde >> modrm >> opcodematch 0 >> opWidthF 16 >> instr "fiadd" [modrm_rm]
+                , opcode 0xdf >> modrm >> opcodematch 0 >> opWidthF 16 >> instr "fild" [modrm_rm]
+-- 0xe0
+                , do opcode 0xe0; d <- displ; instr "loopnz" [pure d]
+                , do opcode 0xe1; d <- displ; instr "loope" [pure d]
+                , do opcode 0xe2; d <- displ; instr "loop" [pure d]
+                , do opcode 0xe3; d <- displ; instr "jrcxz" [pure d]
+                , opcode 0xe4 >> opWidthB >> immB >> instr "in" [accum, immed]
+                , opcode 0xe5 >> opWidthX 32 32 16 >> immB >> instr "in" [accum, immed]
+                , opcode 0xe6 >> opWidthB >> immB >> instr "out" [immed, accum]
+                , opcode 0xe7 >> opWidthX 32 32 16 >> immB >> instr "out" [immed, accum]
+                , opcode 0xec >> opWidthB >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
+                , opcode 0xec >> opWidthB >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
+                , opcode 0xed >> opWidthW >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
+                , opcode 0xee >> opWidthB >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
+                , opcode 0xef >> opWidthW >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
+-- 0xf0
+                , opcode 0xf1 >> instr "int1" [] -- not in intel spec
+                , opcode 0xf4 >> instr "hlt" []
+                , opcode 0xf5 >> instr "cmc" []
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodematch 0 >> immed >> instr "test" [modrm_rm, immed]
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodematch 2 >> instr "not" [modrm_rm]
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodematch 3 >> instr "neg" [modrm_rm]
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodematch 4 >> instr "mul" [accum, modrm_rm]
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodematch 5 >> instr "imul" [accum, modrm_rm]
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodematch 6 >> instr "div" [accum, modrm_rm]
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodematch 7 >> instr "idiv" [accum, modrm_rm]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodematch 0 >> immed >> instr "test" [modrm_rm, immed]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodematch 2 >> instr "not" [modrm_rm]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodematch 3 >> instr "neg" [modrm_rm]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodematch 4 >> instr "mul" [accum, modrm_rm]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodematch 5 >> instr "imul" [accum, modrm_rm]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodematch 6 >> instr "div" [accum, modrm_rm]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodematch 7 >> instr "idiv" [accum, modrm_rm]
+                , opcode 0xf8 >> instr "clc" []
+                , opcode 0xf9 >> instr "stc" []
+                , opcode 0xfa >> instr "cli" []
+                , opcode 0xfb >> instr "sti" []
+                , opcode 0xfc >> instr "cld" []
      ]
 
-ext1A i = ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"] !! (fromIntegral (bits 3 3 i))
+ext1A i = ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"] !! (fromIntegral i)
+ext1A' i = ext1A (fromIntegral (bits 3 3 i))
+
+
 shortjmp i = ["jo", "jno", "jb", "jae", "jz", "jnz", "jbe", "ja", "js", "jns", "jp", "jnp", "jl", "jge", "jle", "jg"]
                         !! (fromIntegral (bits 0 4 i))
 
@@ -245,6 +299,7 @@ modopcode :: Disassembler Word8
 modopcode = (gets dsModRM) >>= pure . modRM_breg . fromJust
 
 opcodematch c = do o <- modopcode; if o == c then pure () else fail "no match"
+opmodmatch c = do o <- modRM_mod <$> fromJust <$> (gets dsModRM); if o == c then pure () else fail "no match"
 
 imm :: Disassembler ()
 imm = do
@@ -254,6 +309,21 @@ imm = do
                 32 -> (readBytes 4) >>= pure . (\s -> fromIntegral (G.runGet G.getWord32le (s)))
                 64 -> (readBytes 4) >>= pure . (\s -> fromIntegral (G.runGet G.getWord32le (s)))
       >>= \i -> modify (\x -> x { dsImmed = Just $ Op_Imm (Immediate ow (i)) } )
+
+moffs :: Disassembler ()
+moffs = do
+    aw <- (\x -> if x then 32 :: Int else 64 :: Int) <$> dsA32
+    ow <- gets dsOpWidth
+    seg <- gets dsSegOverride
+    case aw of 32 -> (readBytes 4) >>= pure . (\s -> fromIntegral (G.runGet G.getWord32le (s)))
+               64 -> (readBytes 8) >>= pure . (\s -> fromIntegral (G.runGet G.getWord64le (s)))
+      >>= \disp -> modify (\x -> x {
+                dsMoffset = Just $ Op_Mem ow aw RegNone RegNone 0 (Immediate aw disp) seg
+                })
+
+moffset :: Disassembler Operand
+moffset = (gets dsMoffset) >>= pure . fromJust
+
 
 immB :: Disassembler ()
 immB = imm' 1 G.getWord8
@@ -266,10 +336,8 @@ imm' b f = (readBytes b) >>= pure . (\s -> fromIntegral (G.runGet f (s)))
                          >>= \i -> modify (\x -> x { dsImmed = Just $ Op_Imm $ Immediate (8 * b) i } )
 
 displ :: Disassembler Operand
-displ = do  lock <- gets dsLock
-            (dispSize, disp) <-
-                case lock of False -> do s <- (readBytes 1); pure (8,  fromIntegral (G.runGet G.getInt8 (s)))
-                             True  -> do s <- (readBytes 4); pure (32, fromIntegral (G.runGet G.getInt32le (s)))
+displ = do  s <- (readBytes 1)
+            disp <- pure (fromIntegral (G.runGet G.getInt8 (s)))
             eip <- gets dsOffset
             let iv = bits 0 64 (eip + disp)
                 imm = Immediate 64 iv
@@ -311,6 +379,8 @@ modrm_sreg = do b'reg <- modRM_breg <$> fromJust <$> (gets dsModRM)
                               3 -> pure (Op_Reg $ RegSeg DS)
                               4 -> pure (Op_Reg $ RegSeg FS)
                               5 -> pure (Op_Reg $ RegSeg GS)
+                              6 -> pure (Op_Reg $ RegSeg SR6) -- not in Intel spec
+                              7 -> pure (Op_Reg $ RegSeg SR7) -- not in Intel spec
                               _ -> fail "invalid"
 
 immed :: Disassembler Operand
@@ -323,6 +393,9 @@ reg rr ov = do
     rexB <- dsRexB
     let r = selectreg (ov ow) rexB rex rr
       in pure $ Op_Reg r
+
+freg :: Word8 -> Disassembler Operand
+freg rr = (pure . Op_Reg . RegFPU) ( [ST0, ST1, ST2, ST3, ST4, ST5, ST6, ST7] !! (fromIntegral rr) )
 
 accum :: Disassembler Operand
 accum = do
