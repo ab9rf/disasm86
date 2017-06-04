@@ -143,8 +143,12 @@ testdis t = intercalate "\n" (map DTI.textrep (take 1 (fst (D.disassemble 0x1000
 ----
 
 statictests = map toBS [
-         "0000"
-       , "9c"
+         "90"
+       , "a81d"
+       , "e300"
+--       "0000"
+--     , "9c"
+--     , "221cfd0000000000"
 --     , "d8c0"
 --     , "6300"
 --     , "666300"

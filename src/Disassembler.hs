@@ -82,8 +82,8 @@ opcode v = (lift $ word8 v) <* adv 1
 
 disassemble1' :: Disassembler Instruction
 disassemble1' = choice [
-            option () (many' segover >> pure ()) >> option () (mask 0xf1 0x40 >> pure()) >> opcode 0x90 >> instr "nop" []
-          , general
+--            option () (many' segover >> pure ()) >> option () (mask 0xf1 0x40 >> pure()) >> opcode 0x90 >> instr "nop" []
+            general
           ]
 
 general = do many' (choice [lockrep, segover, opsize, adsize])
@@ -159,6 +159,7 @@ baseOpcode = choice [
                 , opcode 0x8e >> opWidthX 32 16 16 >> modrm >> instr "mov" [modrm_sreg, modrm_rm] -- intel says otherwise
                 , opcode 0x8f >> modrm >> opcodeMatch 0 >> opWidthF 64 >> instr "pop" [modrm_rm]
 -- 0x90
+                , opcode 0x90 >> nop
                 , do r <- mask 0xf8 0x90; opWidthW; instr "xchg" [reg (r .&. 0x07) id, accum]
                 , opcode 0x98 >> forkX (instr "cdqe" []) (instr "cwde" []) (instr "cbw" [])
                 , opcode 0x99 >> forkX (instr "cqo" [])  (instr "cdq" [])  (instr "cwd" [])
@@ -215,7 +216,7 @@ baseOpcode = choice [
                 , do opcode 0xe0; d <- displ; instr "loopnz" [pure d]
                 , do opcode 0xe1; d <- displ; instr "loope" [pure d]
                 , do opcode 0xe2; d <- displ; instr "loop" [pure d]
-                , do opcode 0xe3; d <- displ; instr "jrcxz" [pure d]
+                , do opcode 0xe3; d <- displ; forkA (instr "jrcxz" [pure d]) (instr "jecxz" [pure d])
                 , opcode 0xe4 >> opWidthB >> immB >> instr "in" [accum, immed]
                 , opcode 0xe5 >> opWidthX 32 32 16 >> immB >> instr "in" [accum, immed]
                 , opcode 0xe6 >> opWidthB >> immB >> instr "out" [immed, accum]
@@ -234,16 +235,16 @@ baseOpcode = choice [
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 0 >> imm >> instr "test" [modrm_rm, immed]
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 2 >> instr "not" [modrm_rm]
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 3 >> instr "neg" [modrm_rm]
-                , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 4 >> instr "mul" [accum, modrm_rm]
-                , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 5 >> instr "imul" [accum, modrm_rm]
-                , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 6 >> instr "div" [accum, modrm_rm]
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 4 >> instr "mul" [modrm_rm]
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 5 >> instr "imul" [modrm_rm]
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 6 >> instr "div" [modrm_rm]
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 7 >> instr "idiv" [modrm_rm]
                 , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 0 >> immed >> instr "test" [modrm_rm, immed]
                 , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 2 >> instr "not" [modrm_rm]
                 , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 3 >> instr "neg" [modrm_rm]
-                , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 4 >> instr "mul" [accum, modrm_rm]
-                , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 5 >> instr "imul" [accum, modrm_rm]
-                , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 6 >> instr "div" [accum, modrm_rm]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 4 >> instr "mul" [modrm_rm]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 5 >> instr "imul" [modrm_rm]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 6 >> instr "div" [modrm_rm]
                 , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 7 >> instr "idiv" [modrm_rm]
                 , opcode 0xf8 >> instr "clc" []
                 , opcode 0xf9 >> instr "stc" []
@@ -262,7 +263,28 @@ baseOpcode = choice [
                 , opcode 0xff >> modrm >> opWidthF 64 >> opcodeMatch 6 >> instr "push" [modrm_rm]
 
                 , opcode 0x0f >> opcode 0x00 >> modrm >> opcodeMatch 0 >> instr "sldt" [modrm_rm]
+                , opcode 0x0f >> opcode 0x00 >> modrm >> opcodeMatch 1 >> instr "str" [modrm_rm]
                 , opcode 0x0f >> opcode 0x00 >> modrm >> opcodeMatch 2 >> instr "lldt" [modrm_rm]
+                , opcode 0x0f >> opcode 0x00 >> modrm >> opcodeMatch 3 >> instr "ltr" [modrm_rm]
+                , opcode 0x0f >> opcode 0x00 >> modrm >> opcodeMatch 4 >> instr "verr" [modrm_rm]
+                , opcode 0x0f >> opcode 0x00 >> modrm >> opcodeMatch 5 >> instr "verw" [modrm_rm]
+
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xc1 >> instr "vmcall" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xc2 >> instr "vmlaunch" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xc3 >> instr "vmresume" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xc4 >> instr "vmxoff" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xc8 >> instr "monitor" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xc9 >> instr "mwait" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xca >> instr "clac" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xcb >> instr "stac" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xcf >> instr "encls" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xd0 >> instr "xgetbv" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xd1 >> instr "xsetbv" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xd4 >> instr "vmfunc" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xd5 >> instr "xend" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xd6 >> instr "xtest" []
+                , opcode 0x0f >> opcode 0x01 >> opcode 0xd7 >> instr "enclu" []
+
 
      ]
 fpu = choice [ fail "dunsel"
@@ -387,6 +409,12 @@ fpu = choice [ fail "dunsel"
             , opcode 0xdf >> modrm >> opmodnot3 >> opcodeMatch 7 >> opWidthF 16 >> instr "fistp" [modrm_rm]
             ]
 
+nop = do b <- dsRexB
+         rep <- (gets dsRep)
+         if b == 1 then fail "not nop"
+            else if rep then instr "pause" []
+                else instr "nop" []
+
 ext1A i = ["add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"] !! (fromIntegral i)
 ext1A' i = ext1A (fromIntegral (bits 3 3 i))
 
@@ -412,6 +440,9 @@ opWidthF n = opWidthX n n n
 forkX q d w = do o16 <- dsO16
                  rexW <- dsRexW
                  case (o16, rexW) of (_, 1) -> q; (True, 0) -> w; (False, 0) -> d
+
+forkA q d  = do a32 <- dsA32
+                case (a32) of (True) -> d; (False) -> q
 
 opWidthX q d w = do o16 <- dsO16
                     rexW <- dsRexW

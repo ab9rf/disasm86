@@ -46,7 +46,7 @@ pfxOrder PrefixA32 = -1
 pfxOrder _ = 9
 
 
-pfxFilter (Instruction [PrefixRep] (Operation "pause") []) PrefixRep = False
+pfxFilter (Instruction _ (Operation "pause") _) PrefixRep = False
 
 pfxFilter (Instruction _ (Operation "movsb") _) (PrefixSeg _) = True
 pfxFilter (Instruction _ (Operation "movsw") _) (PrefixSeg _) = True
@@ -59,6 +59,7 @@ pfxFilter (Instruction _ (Operation "stosq") _) (PrefixSeg _) = True
 pfxFilter (Instruction _ (Operation "lodsb") _) (PrefixSeg _) = True
 pfxFilter (Instruction _ (Operation "lodsw") _) (PrefixSeg _) = True
 pfxFilter (Instruction _ (Operation "lodsd") _) (PrefixSeg _) = True
+pfxFilter (Instruction _ (Operation "lodsq") _) (PrefixSeg _) = True
 
 pfxFilter (Instruction _ (Operation "cbw") _) PrefixO16 = False
 pfxFilter (Instruction _ (Operation "cwd") _) PrefixO16 = False
@@ -86,6 +87,7 @@ pfxFilter (Instruction _ (Operation "popfq") _) PrefixO16 = False
 
 pfxFilter (Instruction _ (Operation "fstp") _) PrefixO16 = True
 pfxFilter (Instruction _ (Operation "fidiv") _) PrefixO16 = True
+pfxFilter (Instruction _ (Operation "fld") _) PrefixO16 = True
 
 pfxFilter (Instruction _ (Operation "in") _) PrefixA32 = True
 pfxFilter (Instruction _ (Operation "out") _) PrefixA32 = True
@@ -101,6 +103,7 @@ pfxFilter (Instruction _ (Operation "mov") [Op_Reg (RegSeg _), _]) PrefixO16 = F
 pfxFilter (Instruction _ (Operation "mov") [_, Op_Reg (RegSeg _)]) PrefixO16 = False
 
 pfxFilter (Instruction _ (Operation "jecxz") _) PrefixA32 = False
+pfxFilter (Instruction _ (Operation "jrcxz") _) PrefixA32 = False
 
 pfxFilter (Instruction _ _ ((Op_Reg (Reg64 _)):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ (_:(Op_Reg (Reg64 _)):_)) PrefixO16 = False
@@ -111,10 +114,7 @@ pfxFilter (Instruction _ _ ((Op_Mem 64 _ _ _ _ _ _):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ (_:(Op_Mem 16 _ _ _ _ _ _):_)) PrefixO16 = False
 pfxFilter (Instruction _ _ (_:(Op_Mem 64 _ _ _ _ _ _):_)) PrefixO16 = False
 
--- 67a100000000 -> mov eax, [0x0]
-pfxFilter (Instruction _ (Operation "mov") [Op_Reg (Reg32 _), Op_Mem 32 _ _ _ _ _ _]) PrefixA32 = False
--- 6748a100000000 -> mov rax, [0x0]
-pfxFilter (Instruction _ (Operation "mov") [Op_Reg (Reg64 _), Op_Mem 64 _ _ _ _ _ _]) PrefixA32 = False
+pfxFilter (Instruction _ (Operation _) [Op_Reg _, Op_Mem _ _ _ _ _ _ _]) PrefixA32 = False
 
 
 pfxFilter (Instruction _ (Operation "rol") [Op_Reg _, Op_Imm _]) PrefixA32 = False
