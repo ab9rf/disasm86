@@ -132,7 +132,7 @@ baseOpcode = choice [
                 , do r <- mask 0xf8 0x58; opWidthX' 64 16; instr "pop" [reg (r .&. 0x07) id]
 -- 0x60
                 , opcode 0x63 >> opWidthW >> modrm >> instr "movsxd" [modrm_reg, opWidthF 32 >> modrm_rm]
-                , opcode 0x68 >> opWidthX 32 32 16 >> imm >> instr "push" [immed]
+                , opcode 0x68 >> opWidthX' 32 16 >> imm >> instr "push" [immed]
                 , opcode 0x69 >> modrm >> opWidthW >> imm >> instr "imul" [modrm_reg, modrm_rm, immed]
                 , opcode 0x6a >> opWidthB >> imm >> instr "push" [immed]
                 , opcode 0x6b >> opWidthW >> modrm >> immB >> instr "imul" [modrm_reg, modrm_rm, immed]
@@ -154,9 +154,9 @@ baseOpcode = choice [
                 , opcode 0x89 >> opWidthW >> modrm >> instr "mov" [modrm_rm, modrm_reg]
                 , opcode 0x8a >> opWidthB >> modrm >> instr "mov" [modrm_reg, modrm_rm]
                 , opcode 0x8b >> opWidthW >> modrm >> instr "mov" [modrm_reg, modrm_rm]
-                , opcode 0x8c >> opWidthX 32 16 16 >> modrm >> instr "mov" [modrm_rm, modrm_sreg] -- intel says otherwise
-                , opcode 0x8d >> opWidthW >> modrm >> instr "lea" [modrm_reg, modrm_rm]
-                , opcode 0x8e >> opWidthX 32 16 16 >> modrm >> instr "mov" [modrm_sreg, modrm_rm] -- intel says otherwise
+                , opcode 0x8c >> opWidthX 32 32 16 >> modrm >> instr "mov" [modrm_rm, modrm_sreg] -- intel says otherwise
+                , opcode 0x8e >> opWidthX 32 32 16 >> modrm >> instr "mov" [modrm_sreg, modrm_rm] -- intel says otherwise
+                , opcode 0x8d >> opWidthW >> modrm >> opmodnot3 >> instr "lea" [modrm_reg, modrm_rm]
                 , opcode 0x8f >> modrm >> opcodeMatch 0 >> opWidthF 64 >> instr "pop" [modrm_rm]
 -- 0x90
                 , opcode 0x90 >> nop
@@ -218,28 +218,30 @@ baseOpcode = choice [
                 , do opcode 0xe2; d <- displ; instr "loop" [pure d]
                 , do opcode 0xe3; d <- displ; forkA (instr "jrcxz" [pure d]) (instr "jecxz" [pure d])
                 , opcode 0xe4 >> opWidthB >> immB >> instr "in" [accum, immed]
-                , opcode 0xe5 >> opWidthX 32 32 16 >> immB >> instr "in" [accum, immed]
+                , opcode 0xe5 >> opWidthX' 32 16 >> immB >> instr "in" [accum, immed]
                 , opcode 0xe6 >> opWidthB >> immB >> instr "out" [immed, accum]
-                , opcode 0xe7 >> opWidthX 32 32 16 >> immB >> instr "out" [immed, accum]
-                , do opcode 0xe8; d <- displD; instr "call" [pure d]
-                , do opcode 0xe9; d <- displW; instr "jmp" [pure d]
+                , opcode 0xe7 >> opWidthX' 32 16 >> immB >> instr "out" [immed, accum]
+                , do opcode 0xe8; d <- forkX' displD displW; instr "call" [pure d]
+                , do opcode 0xe9; d <- forkX' displD displW; instr "jmp" [pure d]
                 , do opcode 0xeb; d <- displ; instr "jmp" [pure d]
                 , opcode 0xec >> opWidthB >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
-                , opcode 0xed >> opWidthW >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
+                , opcode 0xed >> opWidthX' 32 16 >> instr "in" [accum, pure (Op_Reg (Reg16 RDX))]
                 , opcode 0xee >> opWidthB >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
-                , opcode 0xef >> opWidthW >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
+                , opcode 0xef >> opWidthX' 32 16 >> instr "out" [pure (Op_Reg (Reg16 RDX)), accum]
 -- 0xf0
                 , opcode 0xf1 >> instr "int1" [] -- not in intel spec
                 , opcode 0xf4 >> instr "hlt" []
                 , opcode 0xf5 >> instr "cmc" []
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 0 >> imm >> instr "test" [modrm_rm, immed]
+                , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 1 >> imm >> instr "test" [modrm_rm, immed] -- not intel spec
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 2 >> instr "not" [modrm_rm]
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 3 >> instr "neg" [modrm_rm]
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 4 >> instr "mul" [modrm_rm]
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 5 >> instr "imul" [modrm_rm]
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 6 >> instr "div" [modrm_rm]
                 , opcode 0xf6 >> modrm >> opWidthB >> opcodeMatch 7 >> instr "idiv" [modrm_rm]
-                , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 0 >> immed >> instr "test" [modrm_rm, immed]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 0 >> imm >> instr "test" [modrm_rm, immed]
+                , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 1 >> imm >> instr "test" [modrm_rm, immed] -- not intel spec
                 , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 2 >> instr "not" [modrm_rm]
                 , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 3 >> instr "neg" [modrm_rm]
                 , opcode 0xf7 >> modrm >> opWidthW >> opcodeMatch 4 >> instr "mul" [modrm_rm]
@@ -256,10 +258,10 @@ baseOpcode = choice [
                 , opcode 0xfe >> modrm >> opWidthB >> opcodeMatch 1 >> instr "dec" [modrm_rm]
                 , opcode 0xff >> modrm >> opWidthW >> opcodeMatch 0 >> instr "inc" [modrm_rm]
                 , opcode 0xff >> modrm >> opWidthW >> opcodeMatch 1 >> instr "dec" [modrm_rm]
-                , opcode 0xff >> modrm >> opWidthW >> opcodeMatch 2 >> instr "call" [Op_Near <$> modrm_rm]
-                , opcode 0xff >> modrm >> opWidthW >> opcodeMatch 3 >> instr "call" [Op_Far <$> modrm_rm]
-                , opcode 0xff >> modrm >> opWidthW >> opcodeMatch 4 >> instr "jmp" [Op_Near <$> modrm_rm]
-                , opcode 0xff >> modrm >> opWidthW >> opcodeMatch 5 >> instr "jmp" [Op_Far <$> modrm_rm]
+                , opcode 0xff >> modrm >> opWidthX' 32 16 >> opcodeMatch 2 >> instr "call" [Op_Near <$> modrm_rm]
+                , opcode 0xff >> modrm >> opWidthX' 32 16 >> opcodeMatch 3 >> instr "call" [Op_Far <$> modrm_rm]
+                , opcode 0xff >> modrm >> opWidthF 32 >> opcodeMatch 4 >> instr "jmp" [Op_Near <$> modrm_rm]
+                , opcode 0xff >> modrm >> opWidthF 32 >> opcodeMatch 5 >> instr "jmp" [Op_Far <$> modrm_rm]
                 , opcode 0xff >> modrm >> opWidthF 64 >> opcodeMatch 6 >> instr "push" [modrm_rm]
 
                 , opcode 0x0f >> opcode 0x00 >> modrm >> opcodeMatch 0 >> instr "sldt" [modrm_rm]
@@ -327,7 +329,7 @@ fpu = choice [ fail "dunsel"
             , opcode 0xd9 >> modrm >> opmodnot3 >> opcodeMatch 4 >> opWidthF 32 >> instr "fldenv" [modrm_rm]
             , opcode 0xd9 >> modrm >> opmodnot3 >> opcodeMatch 5 >> opWidthF 16 >> instr "fldcw" [modrm_rm]
             , opcode 0xd9 >> modrm >> opmodnot3 >> opcodeMatch 6 >> opWidthF 32 >> instr "fnstenv" [modrm_rm]
-            , opcode 0xd9 >> modrm >> opmodnot3 >> opcodeMatch 7 >> opWidthF 32 >> instr "fstcw" [modrm_rm]
+            , opcode 0xd9 >> modrm >> opmodnot3 >> opcodeMatch 7 >> opWidthF 32 >> instr "fnstcw" [modrm_rm]
 
             , do opcode 0xda; r <- mask 0xf8 0xc0; instr "fcmovb" [pure (Op_Reg (RegFPU ST0)), freg (r .&. 7)]
             , do opcode 0xda; r <- mask 0xf8 0xc8; instr "fcmove" [pure (Op_Reg (RegFPU ST0)), freg (r .&. 7)]
@@ -378,7 +380,7 @@ fpu = choice [ fail "dunsel"
             , opcode 0xdd >> modrm >> opmodnot3 >> opcodeMatch 3 >> opWidthF 64 >> instr "fstp" [modrm_rm]
             , opcode 0xdd >> modrm >> opmodnot3 >> opcodeMatch 4 >> opWidthF 64 >> instr "frstor" [modrm_rm]
             , opcode 0xdd >> modrm >> opmodnot3 >> opcodeMatch 6 >> opWidthF 64 >> instr "fnsave" [modrm_rm]
-            , opcode 0xdd >> modrm >> opmodnot3 >> opcodeMatch 7 >> opWidthF 64 >> instr "fstsw" [modrm_rm]
+            , opcode 0xdd >> modrm >> opmodnot3 >> opcodeMatch 7 >> opWidthF 16 >> instr "fnstsw" [modrm_rm]
 
             , do opcode 0xde; r <- mask 0xf8 0xc0; instr "faddp" [freg (r .&. 7), pure (Op_Reg (RegFPU ST0))]
             , do opcode 0xde; r <- mask 0xf8 0xc8; instr "fmulp" [freg (r .&. 7), pure (Op_Reg (RegFPU ST0))]
@@ -396,7 +398,7 @@ fpu = choice [ fail "dunsel"
             , opcode 0xde >> modrm >> opmodnot3 >> opcodeMatch 6 >> opWidthF 16 >> instr "fidiv" [modrm_rm]
             , opcode 0xde >> modrm >> opmodnot3 >> opcodeMatch 7 >> opWidthF 16 >> instr "fidivr" [modrm_rm]
 
-            , opcode 0xdf >> opcode 0xe0 >> instr "fstsw" [pure (Op_Reg (Reg16 RAX))]
+            , opcode 0xdf >> opcode 0xe0 >> instr "fnstsw" [pure (Op_Reg (Reg16 RAX))]
             , do opcode 0xdf; r <- mask 0xf8 0xe8; instr "fucomip" [pure (Op_Reg (RegFPU ST0)), freg (r .&. 7)]
             , do opcode 0xdf; r <- mask 0xf8 0xf0; instr "fcomip" [pure (Op_Reg (RegFPU ST0)), freg (r .&. 7)]
             , opcode 0xdf >> modrm >> opmodnot3 >> opcodeMatch 0 >> opWidthF 16 >> instr "fild" [modrm_rm]
@@ -440,6 +442,9 @@ opWidthF n = opWidthX n n n
 forkX q d w = do o16 <- dsO16
                  rexW <- dsRexW
                  case (o16, rexW) of (_, 1) -> q; (True, 0) -> w; (False, 0) -> d
+
+forkX' d w = do o16 <- dsO16
+                case (o16) of (True) -> w; (False) -> d
 
 forkA q d  = do a32 <- dsA32
                 case (a32) of (True) -> d; (False) -> q
